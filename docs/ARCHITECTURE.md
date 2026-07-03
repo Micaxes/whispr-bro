@@ -157,8 +157,8 @@ All models load **strictly** from `~/Library/Application Support/whispr-bro/mode
 | Audio streamed to cloud ASR | Audio never leaves process memory; buffer discarded after transcription | No `URLSession`/`Network.framework` symbols in the binary — verified by `scripts/audit-offline.sh` (`nm`/`otool`) in CI |
 | Transcript sent to cloud LLM | llama.cpp statically linked **in-process** — no server, no localhost port, no IPC | By construction; no HTTP client compiled in |
 | Cloud account, telemetry, analytics | None. No analytics SDK, no crash reporter, no auto-update | Zero network code; updates are manual rebuilds |
-| Model/weights fetched at runtime | Install-time only: `fetch-models.sh` with pinned revisions + SHA-256 verify | FluidAudio pointed at local model dir (HF auto-download path unreachable); `HF_HUB_OFFLINE=1` baked into app environment as defense-in-depth |
-| HF hub revision checks (phone-home gotcha) | Never triggered | Local-dir loading only; belt-and-suspenders env var above |
+| Model/weights fetched at runtime | Install-time only: `fetch-models.sh` with pinned revisions + SHA-256 verify | FluidAudio pointed at local model dir; `DownloadUtils.enforceOffline = true` set before any FluidAudio model op, which makes every FluidAudio download path throw `OfflineError` instead of touching the network (FluidAudio does not read `HF_HUB_OFFLINE` — that env var applies to Python HF loaders only) |
+| HF hub fallback download (phone-home gotcha) | Never triggered | Local-dir loading only; `enforceOffline` hard-block above |
 | Behavioral offline claim asserted | Offline claim **proven** | One-time `tcpdump` packet capture of a full dictation cycle in Phase 7 acceptance + debug-build network tripwire (DYLD-interposed `connect()` shim that aborts on any outbound attempt) + documented Little Snitch/LuLu deny-all rule |
 | Dictations in cloud history | SQLite + FTS5 on local disk only | GRDB, single local file; TOML mirror also local |
 | Clipboard exposure during insertion | Clipboard managers ignore dictated text | Pasteboard write marked `org.nspasteboard.ConcealedType` (advisory) + changeCount-guarded 2s restore (real guarantee) |
@@ -198,13 +198,22 @@ stateDiagram-v2
 
 ## 10. Repo layout
 
+> **Implementation note (task-007):** the tree below shows the target-state
+> layout. As built, the non-UI subsystems (Hotkey/, Audio/, ASR/, LLM/,
+> Context/, Insertion/, Dictionary/, Store/, Support/) live in a separate
+> library target `Sources/WhisprBroCore/` so `Tests/` can import them —
+> SwiftPM executable targets are not importable by test targets. The app
+> target `Sources/WhisprBro/` keeps the App/ views and pipeline glue, and the
+> Xcode wrapper is replaced by `scripts/make-app.sh` producing
+> `dist/WhisprBro.app` until code-signing needs grow.
+
 ```
 whispr-bro/
 ├── Package.swift                     # SPM deps: FluidAudio, GRDB.swift, KeyboardShortcuts, swift-collections
 ├── WhisprBro.xcodeproj               # thin app-target wrapper (signing, entitlements, LSUIElement)
 ├── Sources/WhisprBro/
 │   ├── App/
-│   │   ├── WhisprBroApp.swift        # @main, MenuBarExtra scene; sets HF_HUB_OFFLINE=1 in env
+│   │   ├── WhisprBroApp.swift        # @main, MenuBarExtra scene
 │   │   ├── MenuBarView.swift         # status icon states, quick toggles
 │   │   ├── HUDPanel.swift            # borderless always-on-top NSPanel: waveform + pipeline state
 │   │   ├── SettingsView.swift        # hotkey, engines, per-app styles, dictionary
@@ -270,7 +279,7 @@ whispr-bro/
 
 | Risk | Mitigation |
 |---|---|
-| Offline is by-construction, not OS-enforced (no sandbox possible due to AX/CGEvent needs) | Triple enforcement: static symbol audit in CI, behavioral tcpdump acceptance test, debug tripwire; documented Little Snitch/LuLu deny-all rule; `HF_HUB_OFFLINE=1` defense-in-depth |
+| Offline is by-construction, not OS-enforced (no sandbox possible due to AX/CGEvent needs) | Triple enforcement: static symbol audit in CI, behavioral tcpdump acceptance test, debug tripwire; documented Little Snitch/LuLu deny-all rule; `DownloadUtils.enforceOffline` defense-in-depth |
 | LLM <300ms unproven on base M chips (the one soft number) | Phase 3 measurement gate decides the model from on-device data; prompt-lookup decoding; `max_tokens` cap; <6-word fast path; per-app raw mode (Parakeet punctuates natively) as a real product answer |
 | Parakeet is English-only, 2.37% WER, no hotword biasing | Deterministic DictionaryEngine fixes vocab post-hoc; whisper.cpp large-v3-turbo fallback engine (honest UI toggle: breaks 700ms) |
 | Clipboard-paste side effects (managers, terminals, secure input) | AX direct-set fast path; ConcealedType marker; changeCount-checked restore; `IsSecureEventInputEnabled()` visible refusal; per-app "leave in clipboard" override |
