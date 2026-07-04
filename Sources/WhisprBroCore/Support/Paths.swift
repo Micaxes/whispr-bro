@@ -18,6 +18,13 @@ public enum Paths {
         home.appendingPathComponent("models", isDirectory: true)
     }
 
+    /// The Silero VAD CoreML bundle installed by `fetch-models.sh`.
+    public static var vadModelFile: URL {
+        modelsDir
+            .appendingPathComponent("silero-vad", isDirectory: true)
+            .appendingPathComponent("silero-vad-unified-256ms-v6.0.0.mlmodelc", isDirectory: true)
+    }
+
     public static func ensureDirectories() throws {
         try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
     }

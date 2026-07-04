@@ -15,6 +15,9 @@ public final class PreRollBuffer: @unchecked Sendable {
     private var preRoll: Deque<Float>
     private var utterance: [Float] = []
     private var capturingUtterance = false
+    /// How much of the current utterance has been handed to `drainNewSamples`,
+    /// so streaming VAD can consume the tail incrementally without ending it.
+    private var drainedCount = 0
 
     public let preRollSampleCount: Int
 
@@ -45,6 +48,19 @@ public final class PreRollBuffer: @unchecked Sendable {
         utterance = Array(preRoll)
         preRoll.removeAll(keepingCapacity: true)
         capturingUtterance = true
+        drainedCount = 0
+    }
+
+    /// Utterance samples appended since the last call (or since
+    /// `beginUtterance`) — for feeding streaming VAD without ending the
+    /// utterance. Empty when not capturing.
+    public func drainNewSamples() -> [Float] {
+        lock.lock()
+        defer { lock.unlock() }
+        guard capturingUtterance, utterance.count > drainedCount else { return [] }
+        let tail = Array(utterance[drainedCount...])
+        drainedCount = utterance.count
+        return tail
     }
 
     /// Stop accumulating and return the full utterance (pre-roll + held audio).
@@ -52,6 +68,7 @@ public final class PreRollBuffer: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         capturingUtterance = false
+        drainedCount = 0
         let result = utterance
         utterance = []
         return result
