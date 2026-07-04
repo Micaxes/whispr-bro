@@ -19,6 +19,17 @@ final class PipelineController: ObservableObject {
         case error(String)
     }
 
+    enum PermissionKind {
+        case microphone, accessibility, inputMonitoring
+        var settingsPane: String {
+            switch self {
+            case .microphone: "Privacy_Microphone"
+            case .accessibility: "Privacy_Accessibility"
+            case .inputMonitoring: "Privacy_ListenEvent"
+            }
+        }
+    }
+
     struct PermissionSnapshot: Equatable {
         var microphone = false
         var accessibility = false
@@ -123,6 +134,40 @@ final class PipelineController: ObservableObject {
 
     func retry() {
         Task { await bringUp() }
+    }
+
+    /// Actively invoke the OS permission requests. Requesting Input Monitoring
+    /// (CGRequestListenEventAccess) is what registers the app in the Input
+    /// Monitoring list — without it the app never appears there to be toggled.
+    func requestPermission(_ kind: PermissionKind) {
+        switch kind {
+        case .microphone:
+            Task { _ = await Permissions.requestMicrophone(); refreshPermissions() }
+        case .accessibility:
+            _ = Permissions.accessibility(prompt: true)
+        case .inputMonitoring:
+            Permissions.requestInputMonitoring()
+        }
+        openSettings(for: kind)
+    }
+
+    func openSettings(for kind: PermissionKind) {
+        let url = "x-apple.systempreferences:com.apple.preference.security?\(kind.settingsPane)"
+        if let settingsURL = URL(string: url) {
+            NSWorkspace.shared.open(settingsURL)
+        }
+    }
+
+    /// Input Monitoring grants often only take effect for a freshly-launched
+    /// process; relaunching from the menu avoids a confusing "granted but the
+    /// hotkey still doesn't fire" state.
+    func relaunch() {
+        let url = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
+            DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
+        }
     }
 
     private func hotkeyPressed() {

@@ -53,6 +53,21 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --sign - "$APP"
+# Sign with the stable self-signed "whispr-bro dev" identity if present, so
+# TCC grants (Accessibility / Input Monitoring / Microphone) survive rebuilds.
+# Without it, every ad-hoc rebuild changes the cdhash and macOS drops the
+# grants (spec §8 gotcha). Run scripts/make-signing-cert.sh once to create it.
+SIGN_ID="whispr-bro dev"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
+  echo "signing with stable identity: $SIGN_ID"
+  codesign --force --options runtime --sign "$SIGN_ID" "$APP"
+else
+  echo "WARNING: '$SIGN_ID' identity not found — falling back to ad-hoc."
+  echo "  TCC grants will NOT survive rebuilds. Run scripts/make-signing-cert.sh once to fix."
+  codesign --force --sign - "$APP"
+fi
+
+echo "signing authority:"
+codesign -dv "$APP" 2>&1 | grep -E "Authority|Identifier" || true
 echo "done: $APP"
 echo "launch with: open '$APP'"

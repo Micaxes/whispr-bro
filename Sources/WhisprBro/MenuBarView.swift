@@ -14,9 +14,12 @@ struct MenuBarView: View {
         if case .needsPermissions = pipeline.state {
             Divider()
             Text("Grant all three, then whispr-bro arms itself:")
-            permissionRow("Microphone", granted: pipeline.permissions.microphone, pane: "Privacy_Microphone")
-            permissionRow("Accessibility", granted: pipeline.permissions.accessibility, pane: "Privacy_Accessibility")
-            permissionRow("Input Monitoring", granted: pipeline.permissions.inputMonitoring, pane: "Privacy_ListenEvent")
+            permissionRow("Microphone", granted: pipeline.permissions.microphone, kind: .microphone)
+            permissionRow("Accessibility", granted: pipeline.permissions.accessibility, kind: .accessibility)
+            permissionRow("Input Monitoring", granted: pipeline.permissions.inputMonitoring, kind: .inputMonitoring)
+            Divider()
+            Text("After granting Input Monitoring, relaunch:").font(.caption)
+            Button("Relaunch whispr-bro") { pipeline.relaunch() }
         }
 
         if case .modelsMissing = pipeline.state {
@@ -62,15 +65,14 @@ struct MenuBarView: View {
     }
 
     @ViewBuilder
-    private func permissionRow(_ name: String, granted: Bool, pane: String) -> some View {
+    private func permissionRow(_ name: String, granted: Bool, kind: PipelineController.PermissionKind) -> some View {
         if granted {
             Text("✓ \(name)")
         } else {
-            Button("✗ \(name) — open settings…") {
-                let url = "x-apple.systempreferences:com.apple.preference.security?\(pane)"
-                if let settingsURL = URL(string: url) {
-                    NSWorkspace.shared.open(settingsURL)
-                }
+            // Actively request (registers the app + shows the system prompt),
+            // then jump to the relevant Settings pane.
+            Button("✗ \(name) — grant…") {
+                pipeline.requestPermission(kind)
             }
         }
     }
