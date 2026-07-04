@@ -23,18 +23,81 @@ struct WhisprBench {
             await runMic(seconds: max(1, Double(args[1]) ?? 3))
         case "vad" where args.count >= 2:
             await runVad(URL(fileURLWithPath: args[1]))
+        case "llm" where args.count >= 2:
+            await runLlm(key: args[1])
+        case "e2e" where args.count >= 2:
+            await runE2E(URL(fileURLWithPath: args[1]), key: args.count >= 3 ? args[2] : LlmCatalog.default.key)
         default:
             print("""
             usage:
               whispr-bench file <audio-file> [runs]   # timed transcription of a fixture (default 3 runs)
               whispr-bench mic <seconds>              # record from mic, then transcribe
               whispr-bench vad <audio-file>           # load Silero VAD, trim silence, report
+              whispr-bench llm <key>                  # measurement gate: time a model's formatting pass
+                                                      #   key: \(LlmCatalog.all.map(\.key).joined(separator: " | "))
+              whispr-bench e2e <audio-file> [key]     # full ASR -> LLM format on a fixture, with stage timings
 
             models dir: \(Paths.modelsDir.path)
             install models once with: scripts/fetch-models.sh
             """)
             exit(64)
         }
+    }
+
+    /// Realistic raw-dictation transcripts (no punctuation, fillers, false
+    /// starts) for the LLM measurement gate.
+    static let llmTranscripts = [
+        "hey can you um send me the the updated design doc before standup tomorrow morning thanks",
+        "so the quarterly report shows revenue grew twelve percent but we need to double check the churn numbers before presenting them to the board on thursday",
+        "let's move the meeting to three pm and uh remind me to book the flight to berlin i think it's cheaper if we fly out on a tuesday",
+        "the function takes a user id and returns a promise that resolves to the user object or null if not found make sure to handle the error case",
+    ]
+
+    static func runLlm(key: String) async {
+        guard let spec = LlmCatalog.spec(key: key) else {
+            print("unknown model '\(key)'. choices: \(LlmCatalog.all.map(\.key).joined(separator: ", "))")
+            exit(64)
+        }
+        guard spec.isInstalled else {
+            print("not installed: \(spec.fileURL.path)\ninstall with: scripts/fetch-llm-models.sh \(key)")
+            exit(1)
+        }
+        print("== \(spec.displayName) [\(spec.family.rawValue)] ==")
+        let engine = LlamaCppEngine(
+            modelPath: spec.fileURL,
+            promptBuilder: PromptBuilder(family: spec.family)
+        )
+        do {
+            let (_, loadSeconds) = try await measured { try await engine.load() }
+            print(String(format: "model load + prefix prime: %.2fs (excluded)\n", loadSeconds))
+        } catch {
+            print("error: \(error.localizedDescription)")
+            exit(1)
+        }
+
+        var latencies: [Double] = []
+        for (i, transcript) in llmTranscripts.enumerated() {
+            do {
+                let cap = 256
+                let (text, seconds) = try await measured { try await engine.format(transcript, maxTokens: cap, timeout: .seconds(10)) }
+                latencies.append(seconds)
+                let outChars = text.count
+                print("[\(i + 1)] \(String(format: "%.0fms", seconds * 1000)) (\(outChars) chars)")
+                print("    raw: \(transcript)")
+                print("    out: \(text.replacingOccurrences(of: "\n", with: " ⏎ "))\n")
+            } catch {
+                print("[\(i + 1)] error: \(error.localizedDescription)")
+            }
+        }
+        if !latencies.isEmpty {
+            let avg = latencies.reduce(0, +) / Double(latencies.count)
+            let best = latencies.min() ?? 0
+            let worst = latencies.max() ?? 0
+            print(String(format: "format latency: avg %.0fms | best %.0fms | worst %.0fms | n=%d",
+                         avg * 1000, best * 1000, worst * 1000, latencies.count))
+        }
+        // Free GPU buffers before exit or ggml-metal asserts at teardown.
+        await engine.unload()
     }
 
     static func runVad(_ url: URL) async {
@@ -111,6 +174,36 @@ struct WhisprBench {
             let modelAverage = modelTimes.reduce(0, +) / Double(modelTimes.count)
             print(String(format: "asr model-reported avg: %.1fms (FluidAudio processingTime — excludes actor hop)", modelAverage * 1000))
         }
+    }
+
+    static func runE2E(_ url: URL, key: String) async {
+        guard let spec = LlmCatalog.spec(key: key), spec.isInstalled else {
+            print("model '\(key)' not installed; run scripts/fetch-llm-models.sh \(key)")
+            exit(1)
+        }
+        let samples: [Float]
+        do { samples = try AudioFileLoader.loadSamples16k(url) } catch {
+            print("error: \(error.localizedDescription)"); exit(1)
+        }
+        let asr = ParakeetEngine(modelsDir: Paths.modelsDir)
+        let engine = LlamaCppEngine(modelPath: spec.fileURL, promptBuilder: PromptBuilder(family: spec.family))
+        let formatter = TextFormatter(engine: engine)
+        do {
+            try await asr.load()
+            try await formatter.load()
+        } catch {
+            print("error: \(error.localizedDescription)"); exit(1)
+        }
+
+        let (asrResult, asrSeconds) = await measured { () -> AsrResult? in try? await asr.transcribe(samples) }
+        let rawText = asrResult?.text ?? ""
+        let (formatted, formatSeconds) = await measured { await formatter.format(rawText, rawMode: false) }
+
+        print("ASR  (\(String(format: "%.0fms", asrSeconds * 1000))): \(rawText)")
+        print("EDIT (\(String(format: "%.0fms", formatSeconds * 1000))): \(formatted)")
+        print(String(format: "asr+format: %.0fms (+ ~50ms insert ≈ %.0fms end-to-end; Wispr target 700ms p99)",
+                     (asrSeconds + formatSeconds) * 1000, (asrSeconds + formatSeconds) * 1000 + 50))
+        await engine.unload()
     }
 
     static func runMic(seconds: Double) async {

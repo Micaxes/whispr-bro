@@ -20,11 +20,29 @@ The full architecture — mermaid diagrams, component/latency/model/privacy tabl
 
 ## Status
 
-Design spec v1 complete; implementation tracked as a Gitmoot goal following the milestones in the spec. Nothing runnable yet.
+Runnable. Implemented milestones (tracked as a Gitmoot goal, see the spec):
 
-## Requirements (planned)
+- **task-007** — walking skeleton: push-to-talk hotkey → Parakeet ASR → paste (~90ms ASR on M2 Pro)
+- **task-008** — VAD (silence-trim + hands-free lock), password-field refusal, tap watchdog, waveform HUD
+- **task-009** — in-process llama.cpp auto-edit stage (Qwen2.5-1.5B on Metal, frozen from an [on-device measurement gate](docs/llm-measurement-gate.md)); end-to-end ~305–574ms
 
-- macOS 14.4+ on Apple Silicon
-- Xcode / Swift 5.10 toolchain
-- ~2.5GB disk for models (fetched once, at install time, checksum-pinned)
+Remaining: context-aware per-app styles (010), personal dictionary (011), searchable history (012), offline-proof hardening (013).
+
+## Build & run
+
+```bash
+scripts/build-llama-xcframework.sh   # build llama.cpp -> Vendor/llama.xcframework (needs Xcode + `brew install cmake`)
+scripts/fetch-models.sh              # ASR (Parakeet) + VAD (Silero), ~465MB, checksum-pinned
+scripts/fetch-llm-models.sh          # default auto-edit LLM (Qwen2.5-1.5B, ~940MB); or `all` for the benchmark set
+scripts/make-signing-cert.sh         # one-time: stable self-signed cert so TCC grants survive rebuilds
+scripts/make-app.sh                  # build + bundle dist/WhisprBro.app, then `open` it
+```
+
+`whispr-bench` is the measurement harness: `whispr-bench file|mic|vad|llm|e2e …` (times each pipeline stage on your machine).
+
+## Requirements
+
+- macOS 14+ on Apple Silicon
+- Xcode + `cmake` (to build the llama.cpp xcframework)
+- ~1.5GB disk for the default models (fetched once, checksum-pinned; the full LLM benchmark set is ~3GB)
 - Permissions: Microphone, Accessibility, Input Monitoring
