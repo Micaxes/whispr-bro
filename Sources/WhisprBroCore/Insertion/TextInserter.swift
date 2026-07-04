@@ -2,105 +2,46 @@ import AppKit
 import CoreGraphics
 
 /// Inserts text at the cursor of the frontmost app via clipboard + synthetic
-/// Cmd+V (spec §4 TextInserter) — the proven macOS path; per-character
-/// keystroke injection is not viable. Requires the Accessibility permission
-/// to post the CGEvent.
+/// Cmd+V (spec §4 TextInserter) — the proven universal path; per-character
+/// keystroke injection is not viable on macOS. Requires the Accessibility
+/// permission to post the CGEvent. Must be used from the main queue.
 ///
-/// Clipboard etiquette: the previous pasteboard contents are snapshotted with
-/// ALL representations (not just strings — images/files survive), restored
-/// after `restoreDelay` behind a `changeCount` guard so a user copy in the
-/// window wins. Back-to-back dictations carry the ORIGINAL snapshot forward:
-/// dictation N+1 must never mistake dictation N's transient text for the
-/// user's clipboard.
-///
-/// The AX direct-set fast path and `org.nspasteboard.ConcealedType` marking
-/// arrive with task-008's PasteboardGuard. Must be used from the main queue.
+/// The AX direct-set fast path (`AXUIElementSetAttributeValue` on
+/// `kAXSelectedTextAttribute`) is intentionally NOT used yet: it acks-without-
+/// inserting on Electron/Chromium, its read-back verification is ambiguous
+/// (risking silent drops or double-insertion), and its four synchronous AX IPC
+/// calls would block the main actor. It is deferred until it can be
+/// per-app-gated and verified reliably (tracked for a later task).
 public final class TextInserter {
     /// kVK_ANSI_V
     private static let vKeyCode: CGKeyCode = 9
 
-    private let restoreDelay: TimeInterval
-    /// Small settle delay so the released hotkey modifier is not merged into
-    /// the synthetic Cmd+V. Deliberately inside the measured insert window:
-    /// the user is really waiting through it.
+    private let pasteboardGuard: PasteboardGuard
+    /// Settle delay so the released hotkey modifier isn't merged into the
+    /// synthetic Cmd+V.
     private let pasteDelay: TimeInterval
 
-    /// Snapshot of the user's real clipboard while one or more dictation
-    /// writes are in flight; nil when no restore is pending.
-    private var pendingOriginal: [[NSPasteboard.PasteboardType: Data]]?
-    private var pendingRestore: DispatchWorkItem?
-
-    public init(restoreDelay: TimeInterval = 2.0, pasteDelay: TimeInterval = 0.05) {
-        self.restoreDelay = restoreDelay
+    public init(pasteboardGuard: PasteboardGuard = PasteboardGuard(), pasteDelay: TimeInterval = 0.05) {
+        self.pasteboardGuard = pasteboardGuard
         self.pasteDelay = pasteDelay
     }
 
-    /// Insert `text` at the cursor. Calls `completion` on the main queue after
-    /// the paste event has been posted (before clipboard restore).
+    /// Insert `text` at the cursor. `completion` runs on the main queue once
+    /// the paste event has been posted.
     public func insert(_ text: String, completion: (() -> Void)? = nil) {
-        let pasteboard = NSPasteboard.general
-
-        // Chained dictation: a pending restore means the board currently
-        // holds OUR previous transient text — keep the earlier snapshot.
-        if let pendingRestore {
-            pendingRestore.cancel()
-        } else {
-            pendingOriginal = Self.snapshot(pasteboard)
-        }
-
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        let changeCountAfterWrite = pasteboard.changeCount
-
-        let restore = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.pendingRestore = nil
-            let original = self.pendingOriginal
-            self.pendingOriginal = nil
-            // Only restore if nobody else wrote the pasteboard meanwhile.
-            guard pasteboard.changeCount == changeCountAfterWrite else { return }
-            Self.write(original ?? [], to: pasteboard)
-        }
-        pendingRestore = restore
-
+        pasteboardGuard.writeTransient(text)
         DispatchQueue.main.asyncAfter(deadline: .now() + pasteDelay) { [self] in
             postCmdV()
             completion?()
-            DispatchQueue.main.asyncAfter(deadline: .now() + restoreDelay, execute: restore)
         }
-    }
-
-    // MARK: - Pasteboard snapshot/restore (all representations)
-
-    private static func snapshot(_ pasteboard: NSPasteboard) -> [[NSPasteboard.PasteboardType: Data]] {
-        (pasteboard.pasteboardItems ?? []).map { item in
-            var representations: [NSPasteboard.PasteboardType: Data] = [:]
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    representations[type] = data
-                }
-            }
-            return representations
-        }
-    }
-
-    private static func write(_ items: [[NSPasteboard.PasteboardType: Data]], to pasteboard: NSPasteboard) {
-        pasteboard.clearContents()
-        guard !items.isEmpty else { return }
-        let pasteboardItems = items.map { representations in
-            let item = NSPasteboardItem()
-            for (type, data) in representations {
-                item.setData(data, forType: type)
-            }
-            return item
-        }
-        pasteboard.writeObjects(pasteboardItems)
     }
 
     private func postCmdV() {
         guard let source = CGEventSource(stateID: .combinedSessionState) else { return }
         let keyDown = CGEvent(keyboardEventSource: source, virtualKey: Self.vKeyCode, keyDown: true)
         let keyUp = CGEvent(keyboardEventSource: source, virtualKey: Self.vKeyCode, keyDown: false)
+        // Exactly the Command chord — posting to the session tap (not the HID
+        // tap) so a physically-held hotkey modifier isn't merged into it.
         keyDown?.flags = .maskCommand
         keyUp?.flags = .maskCommand
         keyDown?.post(tap: .cgSessionEventTap)

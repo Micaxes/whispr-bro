@@ -21,17 +21,44 @@ struct WhisprBench {
             await runFile(URL(fileURLWithPath: args[1]), runs: runs)
         case "mic" where args.count >= 2:
             await runMic(seconds: max(1, Double(args[1]) ?? 3))
+        case "vad" where args.count >= 2:
+            await runVad(URL(fileURLWithPath: args[1]))
         default:
             print("""
             usage:
               whispr-bench file <audio-file> [runs]   # timed transcription of a fixture (default 3 runs)
               whispr-bench mic <seconds>              # record from mic, then transcribe
+              whispr-bench vad <audio-file>           # load Silero VAD, trim silence, report
 
             models dir: \(Paths.modelsDir.path)
             install models once with: scripts/fetch-models.sh
             """)
             exit(64)
         }
+    }
+
+    static func runVad(_ url: URL) async {
+        let samples: [Float]
+        do {
+            samples = try AudioFileLoader.loadSamples16k(url)
+        } catch {
+            print("error: \(error.localizedDescription)")
+            exit(1)
+        }
+        let vad = VadGate(modelFile: Paths.vadModelFile)
+        do {
+            let (_, loadSeconds) = try await measured { try await vad.load() }
+            print(String(format: "vad load: %.2fs", loadSeconds))
+        } catch {
+            print("error: \(error.localizedDescription)")
+            exit(1)
+        }
+        let inputSeconds = Double(samples.count) / AudioEngine.targetSampleRate
+        let (trimmed, trimSeconds) = await measured { await vad.trim(samples) }
+        let outputSeconds = Double(trimmed.count) / AudioEngine.targetSampleRate
+        print(String(format: "input: %.2fs (%d samples)", inputSeconds, samples.count))
+        print(String(format: "trimmed: %.2fs (%d samples) — removed %.2fs of silence in %.1fms",
+                     outputSeconds, trimmed.count, inputSeconds - outputSeconds, trimSeconds * 1000))
     }
 
     static func loadEngine() async -> AsrEngine {

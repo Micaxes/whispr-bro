@@ -60,4 +60,38 @@ final class PreRollBufferTests: XCTestCase {
         buffer.append(Array(repeating: 3, count: 500))
         XCTAssertEqual(buffer.endUtterance().count, 500)
     }
+
+    // MARK: - drainNewSamples (streaming VAD tail)
+
+    func testDrainReturnsOnlyNewSamplesSinceLastDrain() {
+        let buffer = PreRollBuffer(preRollSampleCount: 4)
+        buffer.append([9, 9]) // pre-roll
+        buffer.beginUtterance()
+
+        buffer.append([1, 2, 3])
+        XCTAssertEqual(buffer.drainNewSamples(), [9, 9, 1, 2, 3]) // pre-roll + first tail
+        XCTAssertEqual(buffer.drainNewSamples(), []) // nothing new
+
+        buffer.append([4, 5])
+        XCTAssertEqual(buffer.drainNewSamples(), [4, 5])
+        XCTAssertEqual(buffer.endUtterance(), [9, 9, 1, 2, 3, 4, 5]) // full utterance intact
+    }
+
+    func testDrainIsEmptyWhenNotCapturing() {
+        let buffer = PreRollBuffer(preRollSampleCount: 4)
+        buffer.append([1, 2])
+        XCTAssertEqual(buffer.drainNewSamples(), []) // idle: pre-roll is not drainable
+    }
+
+    func testDrainCursorResetsPerUtterance() {
+        let buffer = PreRollBuffer(preRollSampleCount: 2)
+        buffer.beginUtterance()
+        buffer.append([1, 2, 3])
+        _ = buffer.drainNewSamples()
+        _ = buffer.endUtterance()
+
+        buffer.beginUtterance()
+        buffer.append([7, 8])
+        XCTAssertEqual(buffer.drainNewSamples(), [7, 8]) // fresh cursor, not offset by prior utterance
+    }
 }

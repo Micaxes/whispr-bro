@@ -37,6 +37,15 @@ struct MenuBarView: View {
             Button("Retry") { pipeline.retry() }
         }
 
+        if pipeline.hotkeyDead {
+            Divider()
+            Text("⚠️ Hotkey stopped working — re-grant Input Monitoring")
+            Button("Open Input Monitoring settings…") {
+                pipeline.openSettings(for: .inputMonitoring)
+            }
+            Button("Relaunch whispr-bro") { pipeline.relaunch() }
+        }
+
         if !pipeline.lastTranscript.isEmpty {
             Divider()
             Text("Last: \(String(pipeline.lastTranscript.prefix(60)))")
@@ -44,7 +53,7 @@ struct MenuBarView: View {
         }
 
         Divider()
-        Text("Hold Right Option (⌥) to dictate")
+        Text("Hold Right ⌥ to dictate · double-tap to lock hands-free")
         Button("Quit whispr-bro") {
             NSApplication.shared.terminate(nil)
         }

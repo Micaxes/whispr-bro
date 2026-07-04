@@ -56,6 +56,11 @@ public final class AudioEngine: @unchecked Sendable {
         buffer.beginUtterance()
     }
 
+    /// Utterance samples captured since the last call — for streaming VAD.
+    public func drainNewSamples() -> [Float] {
+        buffer.drainNewSamples()
+    }
+
     /// Returns 16kHz mono samples: pre-roll + everything captured during the hold.
     public func endUtterance() -> [Float] {
         buffer.endUtterance()
