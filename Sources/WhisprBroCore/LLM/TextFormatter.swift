@@ -1,0 +1,145 @@
+import Foundation
+import os.log
+
+/// Policy layer over `LlamaCppEngine` (spec §4 Formatter, §11.3). Decides when
+/// to skip the LLM entirely and enforces safety rails:
+///  - **raw mode** (per-call): LLM disabled — rule-based cleanup only.
+///  - **short-utterance fast path**: under `fastPathWordLimit` words, skip the
+///    LLM — Parakeet already punctuates, so the round-trip isn't worth it.
+///  - **generation cap**: `maxTokens ≈ 2×` the input so a model can't run away.
+///  - **hard time budget**: the engine's abort callback aborts a decode that
+///    exceeds `hangTimeout`, so a stuck GPU decode can't wedge the pipeline;
+///    on abort/failure the dictation falls back to the rule-based result.
+///  - **sanitizer**: conservatively strips known preambles / think blocks a
+///    model may add despite instructions.
+public actor TextFormatter {
+    public struct Config: Sendable {
+        public var fastPathWordLimit: Int = 6
+        public var hangTimeout: Duration = .seconds(3)
+        public var maxTokensFloor: Int = 24
+        /// Output-token budget as a multiple of the input word count.
+        public var tokensPerWord: Double = 2.8
+        public init() {}
+    }
+
+    private let engine: LlamaCppEngine
+    private let config: Config
+    private let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "formatter")
+
+    public init(engine: LlamaCppEngine, config: Config = Config()) {
+        self.engine = engine
+        self.config = config
+    }
+
+    public var isEngineLoaded: Bool {
+        get async { await engine.isLoaded }
+    }
+
+    public func load() async throws {
+        try await engine.load()
+    }
+
+    /// Free the model/context before process exit. Required: ggml-metal
+    /// asserts at teardown if the Metal device is freed while the model still
+    /// holds GPU buffers.
+    public func shutdown() async {
+        await engine.unload()
+    }
+
+    /// Format `raw` (already dictionary-corrected). Never throws: any engine
+    /// failure, timeout, or raw/fast-path degrades to the rule-based result so
+    /// a dictation always lands.
+    public func format(_ raw: String, rawMode: Bool) async -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+
+        let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
+        if rawMode || wordCount < config.fastPathWordLimit {
+            return Self.ruleBasedCleanup(trimmed)
+        }
+        guard await engine.isLoaded else {
+            return Self.ruleBasedCleanup(trimmed)
+        }
+
+        let cap = max(config.maxTokensFloor, Int(Double(wordCount) * config.tokensPerWord))
+        do {
+            let formatted = try await engine.format(trimmed, maxTokens: cap, timeout: config.hangTimeout)
+            let cleaned = Self.sanitize(formatted)
+            return cleaned.isEmpty ? Self.ruleBasedCleanup(trimmed) : cleaned
+        } catch WhisprError.formattingTimedOut {
+            log.error("format aborted (>\(self.config.hangTimeout.description)); re-priming, using raw")
+            await engine.recover()
+            return Self.ruleBasedCleanup(trimmed)
+        } catch {
+            log.error("format failed: \(error.localizedDescription); using raw")
+            return Self.ruleBasedCleanup(trimmed)
+        }
+    }
+
+    // MARK: - Rule-based fallback
+
+    /// Minimal deterministic cleanup for the fast path / fallback: capitalize
+    /// the first letter and ensure terminal punctuation. Parakeet already
+    /// emits most punctuation, so this is intentionally conservative.
+    static func ruleBasedCleanup(_ text: String) -> String {
+        var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = s.first else { return s }
+        if first.isLowercase {
+            s.replaceSubrange(s.startIndex...s.startIndex, with: String(first).uppercased())
+        }
+        if let last = s.last, !".!?".contains(last) {
+            s.append(".")
+        }
+        return s
+    }
+
+    // MARK: - Output sanitizer
+
+    /// Known preamble phrases a model may prepend despite "output only the
+    /// cleaned text". Matched only as an exact case-insensitive line PREFIX
+    /// ending in a colon, so legitimately dictated sentences (even ones that
+    /// start with "Here is …") are not eaten unless they exactly match one of
+    /// these meta phrases.
+    private static let preambles = [
+        "here is the cleaned text",
+        "here's the cleaned text",
+        "here is the corrected text",
+        "here's the corrected text",
+        "here is the cleaned-up text",
+        "cleaned text",
+        "corrected text",
+    ]
+
+    static func sanitize(_ output: String) -> String {
+        var s = output.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Remove a reasoning block. If unterminated (cap truncated it), drop
+        // everything from <think> to the end so no reasoning leaks.
+        if let open = s.range(of: "<think>") {
+            if let close = s.range(of: "</think>", range: open.upperBound..<s.endIndex) {
+                s.removeSubrange(open.lowerBound..<close.upperBound)
+            } else {
+                s.removeSubrange(open.lowerBound..<s.endIndex)
+            }
+        }
+        s = s.replacingOccurrences(of: "</think>", with: "")
+             .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Strip a known preamble phrase only when it is an exact prefix ending
+        // at a colon.
+        if let colon = s.firstIndex(of: ":") {
+            let head = s[s.startIndex..<colon].lowercased()
+                .trimmingCharacters(in: CharacterSet(charactersIn: " \"'*"))
+            if Self.preambles.contains(head) {
+                s = String(s[s.index(after: colon)...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        // Strip surrounding code fences (a clear model artifact). Do NOT strip
+        // ordinary wrapping quotes — a dictation may legitimately be a quote.
+        if s.hasPrefix("```"), s.hasSuffix("```"), s.count >= 6 {
+            s = String(s.dropFirst(3).dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return s
+    }
+}

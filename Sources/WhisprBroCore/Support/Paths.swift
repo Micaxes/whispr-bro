@@ -18,6 +18,11 @@ public enum Paths {
         home.appendingPathComponent("models", isDirectory: true)
     }
 
+    /// Reformatting LLM GGUFs installed by `fetch-llm-models.sh`.
+    public static var llmDir: URL {
+        modelsDir.appendingPathComponent("llm", isDirectory: true)
+    }
+
     /// The Silero VAD CoreML bundle installed by `fetch-models.sh`.
     public static var vadModelFile: URL {
         modelsDir

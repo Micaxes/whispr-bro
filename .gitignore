@@ -9,3 +9,7 @@ DerivedData/
 /models/
 /dist/
 *.xcodeproj
+
+# llama.cpp build cache (clone + cmake build)
+/.build-llama/
+/Vendor/llama.xcframework

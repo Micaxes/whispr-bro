@@ -61,6 +61,12 @@ final class PipelineController: ObservableObject {
     private let hud = HUDController()
     private let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "pipeline")
 
+    private let llmModel = LlmCatalog.default
+    private let formatter: TextFormatter
+
+    @Published private(set) var rawMode = false
+    @Published private(set) var llmAvailable = false
+
     private var permissionPollTimer: Timer?
     private var vadTimer: Timer?
     private var maxRecordingTimer: Timer?
@@ -70,6 +76,14 @@ final class PipelineController: ObservableObject {
     private var isLocked = false
     private var recordingStartUptime: TimeInterval = 0
     private var errorGeneration = 0
+
+    init() {
+        let engine = LlamaCppEngine(
+            modelPath: llmModel.fileURL,
+            promptBuilder: PromptBuilder(family: llmModel.family)
+        )
+        formatter = TextFormatter(engine: engine)
+    }
 
     func startup() {
         hud.levelProvider = { [weak self] in self?.audio.lastRMS ?? 0 }
@@ -118,6 +132,20 @@ final class PipelineController: ObservableObject {
                 vadAvailable = false
                 log.warning("VAD unavailable, continuing without it: \(error.localizedDescription)")
             }
+            // LLM is optional too: without it, dictation falls back to
+            // rule-based cleanup (raw mode) — never blocks bring-up.
+            if llmModel.isInstalled {
+                do {
+                    try await formatter.load()
+                    llmAvailable = true
+                } catch {
+                    llmAvailable = false
+                    log.warning("LLM unavailable, using raw cleanup: \(error.localizedDescription)")
+                }
+            } else {
+                llmAvailable = false
+                log.info("LLM model not installed; raw cleanup only")
+            }
             if !pipelineRunning {
                 try audio.start()
                 try hotkey.start()
@@ -152,6 +180,19 @@ final class PipelineController: ObservableObject {
     }
 
     func retry() { Task { await bringUp() } }
+
+    /// Free GPU-backed models before the process exits (spec §12 clean quit).
+    func shutdown() async {
+        await formatter.shutdown()
+    }
+
+    /// Toggle the LLM auto-edit stage. In raw mode only rule-based cleanup
+    /// runs (Parakeet already punctuates), which is instant. The flag is read
+    /// per-dictation (passed into format), so a toggle can't race an in-flight
+    /// format into an inconsistent state.
+    func toggleRawMode() {
+        rawMode.toggle()
+    }
 
     /// Timers on the `.common` run-loop mode so they keep firing while the
     /// menu-bar menu is open (which puts the main loop in event-tracking mode).
@@ -330,12 +371,18 @@ final class PipelineController: ObservableObject {
             let toTranscribe = audioForAsr.count >= asr.minimumSamples ? audioForAsr : samples
             let (result, asrSeconds) = try await measured { try await asr.transcribe(toTranscribe) }
             timings.asrSeconds = asrSeconds
-            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else {
+            let rawText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawText.isEmpty else {
                 state = .idle
                 hud.hide()
                 return
             }
+
+            // Stage 2: LLM auto-edit (or rule-based fast path / raw fallback).
+            // Formatter.format never throws — a dictation always lands.
+            let raw = rawMode
+            let (text, formatSeconds) = await measured { await formatter.format(rawText, rawMode: raw) }
+            timings.formatSeconds = formatSeconds
 
             // Authoritative secure check (system + focused AX field). Focus may
             // have moved to a password field while we transcribed. This is off

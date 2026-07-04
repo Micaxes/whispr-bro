@@ -53,6 +53,14 @@ struct MenuBarView: View {
         }
 
         Divider()
+        if pipeline.llmAvailable {
+            Toggle("Raw mode (skip AI cleanup)", isOn: Binding(
+                get: { pipeline.rawMode },
+                set: { _ in pipeline.toggleRawMode() }
+            ))
+        } else if case .idle = pipeline.state {
+            Text("AI cleanup off (model not installed)").font(.caption)
+        }
         Text("Hold Right ⌥ to dictate · double-tap to lock hands-free")
         Button("Quit whispr-bro") {
             NSApplication.shared.terminate(nil)

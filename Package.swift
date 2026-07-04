@@ -16,11 +16,15 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
     ],
     targets: [
+        // Prebuilt by scripts/build-llama-xcframework.sh (pinned llama.cpp tag,
+        // Metal embedded). Gitignored; run that script once before building.
+        .binaryTarget(name: "llama", path: "Vendor/llama.xcframework"),
         .target(
             name: "WhisprBroCore",
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Collections", package: "swift-collections"),
+                "llama",
             ]
         ),
         .executableTarget(

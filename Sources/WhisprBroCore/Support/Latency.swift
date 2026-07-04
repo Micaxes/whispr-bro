@@ -5,16 +5,20 @@ import Foundation
 public struct StageTimings: Sendable, CustomStringConvertible {
     public var audioFinalizeSeconds: Double = 0
     public var asrSeconds: Double = 0
+    public var formatSeconds: Double = 0
     public var insertSeconds: Double = 0
 
-    public var totalSeconds: Double { audioFinalizeSeconds + asrSeconds + insertSeconds }
+    public var totalSeconds: Double {
+        audioFinalizeSeconds + asrSeconds + formatSeconds + insertSeconds
+    }
 
     public init() {}
 
     public var description: String {
         String(
-            format: "audio %.1fms | asr %.1fms | insert %.1fms | total %.1fms",
-            audioFinalizeSeconds * 1000, asrSeconds * 1000, insertSeconds * 1000, totalSeconds * 1000
+            format: "audio %.1fms | asr %.1fms | format %.1fms | insert %.1fms | total %.1fms",
+            audioFinalizeSeconds * 1000, asrSeconds * 1000, formatSeconds * 1000,
+            insertSeconds * 1000, totalSeconds * 1000
         )
     }
 }

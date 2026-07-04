@@ -20,9 +20,21 @@ swift build -c release --package-path "$ROOT"
 BIN="$ROOT/.build/release/WhisprBro"
 [[ -x "$BIN" ]] || { echo "build product missing: $BIN" >&2; exit 1; }
 
+FRAMEWORK="$ROOT/Vendor/llama.xcframework/macos-arm64/llama.framework"
+[[ -d "$FRAMEWORK" ]] || { echo "missing $FRAMEWORK — run scripts/build-llama-xcframework.sh" >&2; exit 1; }
+
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/WhisprBro"
+
+# The executable links @rpath/llama.framework (a dynamic framework). Embed it
+# and point the rpath at the bundle's Frameworks dir so it resolves at runtime.
+cp -R "$FRAMEWORK" "$APP/Contents/Frameworks/"
+# Idempotent + loud: only add the rpath if absent, and fail if the add errors
+# (a silently-missing rpath yields an app that can't load llama.framework).
+if ! otool -l "$APP/Contents/MacOS/WhisprBro" | grep -q "@executable_path/../Frameworks"; then
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/WhisprBro"
+fi
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -60,12 +72,18 @@ PLIST
 SIGN_ID="whispr-bro dev"
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
   echo "signing with stable identity: $SIGN_ID"
-  codesign --force --options runtime --sign "$SIGN_ID" "$APP"
+  # No hardened runtime: it enables Library Validation, which rejects our
+  # self-signed llama.framework (no Team ID). Hardened runtime is only needed
+  # for notarization, which this local dev build doesn't do.
+  SIGN_ARGS=(--force --sign "$SIGN_ID")
 else
   echo "WARNING: '$SIGN_ID' identity not found — falling back to ad-hoc."
   echo "  TCC grants will NOT survive rebuilds. Run scripts/make-signing-cert.sh once to fix."
-  codesign --force --sign - "$APP"
+  SIGN_ARGS=(--force --sign -)
 fi
+# Sign inside-out: the embedded framework before the app that contains it.
+codesign "${SIGN_ARGS[@]}" "$APP/Contents/Frameworks/llama.framework"
+codesign "${SIGN_ARGS[@]}" "$APP"
 
 echo "signing authority:"
 codesign -dv "$APP" 2>&1 | grep -E "Authority|Identifier" || true
