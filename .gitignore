@@ -1,0 +1,11 @@
+.DS_Store
+/.build
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/
+# local model downloads if fetched into the repo (default dest is
+# ~/Library/Application Support/whispr-bro/models)
+/models/
+/dist/
+*.xcodeproj
