@@ -49,7 +49,9 @@ public actor TextFormatter {
     /// Format `raw` (already dictionary-corrected). Never throws: any engine
     /// failure, timeout, or raw/fast-path degrades to the rule-based result so
     /// a dictation always lands.
-    public func format(_ raw: String, rawMode: Bool) async -> String {
+    public func format(
+        _ raw: String, rawMode: Bool, styleDirective: String = ""
+    ) async -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
 
@@ -63,7 +65,9 @@ public actor TextFormatter {
 
         let cap = max(config.maxTokensFloor, Int(Double(wordCount) * config.tokensPerWord))
         do {
-            let formatted = try await engine.format(trimmed, maxTokens: cap, timeout: config.hangTimeout)
+            let formatted = try await engine.format(
+                trimmed, styleDirective: styleDirective,
+                maxTokens: cap, timeout: config.hangTimeout)
             let cleaned = Self.sanitize(formatted)
             return cleaned.isEmpty ? Self.ruleBasedCleanup(trimmed) : cleaned
         } catch WhisprError.formattingTimedOut {

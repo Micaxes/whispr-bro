@@ -25,8 +25,23 @@ public enum SecureInput {
     /// permission; without it returns false (the system-wide check still guards).
     public static var isFocusedFieldSecure: Bool {
         guard let element = AXFocus.focusedElement() else { return false }
-        return AXFocus.stringAttribute(element, kAXSubroleAttribute as String)
-            == (kAXSecureTextFieldSubrole as String)
+        return elementIsSecure(element)
+    }
+
+    /// True if `element` or one of its (bounded) ancestors is a secure field —
+    /// some toolkits put the secure subrole on a wrapper.
+    public static func elementIsSecure(_ element: AXUIElement, maxHops: Int = 3) -> Bool {
+        var current: AXUIElement? = element
+        var hops = 0
+        while let el = current, hops <= maxHops {
+            if AXFocus.stringAttribute(el, kAXSubroleAttribute as String)
+                == (kAXSecureTextFieldSubrole as String) {
+                return true
+            }
+            current = AXFocus.parent(el)
+            hops += 1
+        }
+        return false
     }
 
     /// Full authoritative check for the insertion path (off the hot path).
