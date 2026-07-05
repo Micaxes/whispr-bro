@@ -7,6 +7,7 @@ import WhisprBroCore
 /// is the walking skeleton's UI.)
 struct MenuBarView: View {
     @ObservedObject var pipeline: PipelineController
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Text(statusLine)
@@ -66,6 +67,14 @@ struct MenuBarView: View {
             Text("AI cleanup off (model not installed)").font(.caption)
         }
         Divider()
+        Button("History…") {
+            ActivationPolicy.activate()
+            openWindow(id: "history")
+        }
+        Toggle("Save history", isOn: Binding(
+            get: { pipeline.historyEnabled },
+            set: { pipeline.historyEnabled = $0 }
+        ))
         Button("Edit dictionary & config…") { pipeline.openConfig() }
         Button("Reload config") { pipeline.reloadConfig() }
 

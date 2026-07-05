@@ -71,9 +71,16 @@ final class PipelineController: ObservableObject {
     @Published private(set) var rawMode = false
     /// Apply per-app formatting register (Slack casual / Mail formal / …).
     @Published var contextAwareStyle = true
+    /// Persist each dictation to the local history. Off = dictate without a
+    /// stored transcript log (persisted across launches).
+    @Published var historyEnabled = UserDefaults.standard.object(forKey: "historyEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(historyEnabled, forKey: "historyEnabled") }
+    }
 
     /// App category captured at key-press for the current dictation.
     private var capturedCategory: AppCategory = .unknown
+    private var capturedBundleId: String?
+    private var capturedAppName: String?
     @Published private(set) var llmAvailable = false
 
     private var permissionPollTimer: Timer?
@@ -97,6 +104,9 @@ final class PipelineController: ObservableObject {
     func startup() {
         ConfigStore.ensureDefault()
         applyConfig(ConfigStore.load())
+        // Open the history DB off-main so the first History-window access
+        // doesn't run the SQLite open + migration on the main thread.
+        Task.detached { HistoryStore.prewarm() }
         hud.levelProvider = { [weak self] in self?.audio.lastRMS ?? 0 }
         hotkey.onKeyDown = { [weak self] in self?.hotkeyPressed() }
         hotkey.onKeyUp = { [weak self] in self?.hotkeyReleased() }
@@ -191,6 +201,23 @@ final class PipelineController: ObservableObject {
     }
 
     func retry() { Task { await bringUp() } }
+
+    private static func ms(_ seconds: Double) -> Int { Int((seconds * 1000).rounded()) }
+
+    /// Re-insert a past dictation (from the History window). The window has
+    /// already dismissed, so after a short beat the frontmost app is the one
+    /// the user wants — paste into it, but only if it isn't a secure field
+    /// (same guard the live dictation path enforces).
+    func reinsertFromHistory(_ text: String) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            if SecureInput.shouldRefuse {
+                NSSound.beep() // refuse to paste into a password field
+                return
+            }
+            self.inserter.insert(text)
+        }
+    }
 
     /// Rebuild the dictionary, style overrides, and category map from `config`
     /// (spec §4 Config mirror; §11.5 live reload).
@@ -317,10 +344,13 @@ final class PipelineController: ObservableObject {
             refuse("Won't dictate while secure input is active")
             return
         }
-        // Snapshot the app category NOW — frontmost moves during dictation.
-        // Cheap (bundle-id map lookup, no AX IPC), so it's safe on the hot path.
+        // Snapshot the app NOW — frontmost moves during dictation. Cheap
+        // (bundle-id map lookup, no AX IPC), so it's safe on the hot path.
+        let front = ContextService.frontmostApp()
+        capturedBundleId = front.bundleId
+        capturedAppName = front.appName
         capturedCategory = AppCategoryResolver.category(
-            bundleId: ContextService.frontmostBundleId(), overrides: categoryOverrides)
+            bundleId: front.bundleId, overrides: categoryOverrides)
 
         isLocked = false
         recordingStartUptime = ProcessInfo.processInfo.systemUptime
@@ -485,6 +515,9 @@ final class PipelineController: ObservableObject {
             hud.update(.inserting)
             let insertClock = ContinuousClock()
             let insertStart = insertClock.now
+            let historyRaw = rawText
+            let historyBundleId = capturedBundleId
+            let historyAppName = capturedAppName
             inserter.insert(text) { [weak self] in
                 guard let self else { return }
                 timings.insertSeconds = (insertClock.now - insertStart).seconds
@@ -493,6 +526,18 @@ final class PipelineController: ObservableObject {
                 self.log.info("dictation (\(wasLocked ? "locked" : "hold")): \"\(text, privacy: .private)\" [\(timings.description)]")
                 self.state = .idle
                 self.hud.hide()
+                // Persist to history OFF the insertion path — a detached Task
+                // so the DB write never blocks the dictation completing. Skipped
+                // entirely when the user disabled history.
+                if self.historyEnabled {
+                    let record = HistoryRecord(
+                        createdAt: Date(), appBundleId: historyBundleId, appName: historyAppName,
+                        rawText: historyRaw, formattedText: text,
+                        audioMs: Self.ms(timings.audioFinalizeSeconds), asrMs: Self.ms(timings.asrSeconds),
+                        formatMs: Self.ms(timings.formatSeconds), insertMs: Self.ms(timings.insertSeconds),
+                        totalMs: Self.ms(timings.totalSeconds))
+                    Task.detached { await HistoryStore.shared?.save(record) }
+                }
             }
         } catch {
             errorGeneration += 1

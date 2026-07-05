@@ -11,11 +11,12 @@ import AppKit
 /// a password or a whole document into the LLM prompt. Deferred until it can be
 /// made reliably safe.
 public enum ContextService {
-    /// The frontmost app's bundle id (IPC-free). Sample AT key-press — frontmost
-    /// moves during dictation. The pipeline resolves the category with the
-    /// config's overrides applied.
+    /// The frontmost app's bundle id + display name (IPC-free). Sample AT
+    /// key-press — frontmost moves during dictation. The pipeline resolves the
+    /// category with the config's overrides applied, and stores both in history.
     @MainActor
-    public static func frontmostBundleId() -> String? {
-        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    public static func frontmostApp() -> (bundleId: String?, appName: String?) {
+        let app = NSWorkspace.shared.frontmostApplication
+        return (app?.bundleIdentifier, app?.localizedName)
     }
 }
