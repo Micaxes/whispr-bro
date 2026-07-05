@@ -23,6 +23,14 @@ public enum Paths {
         modelsDir.appendingPathComponent("llm", isDirectory: true)
     }
 
+    /// The optional whisper.cpp large-v3-turbo GGML model for the fallback ASR
+    /// engine slot (spec §11.7). Absent unless a user opts into that engine.
+    public static var whisperModelFile: URL {
+        modelsDir
+            .appendingPathComponent("whisper", isDirectory: true)
+            .appendingPathComponent("ggml-large-v3-turbo-q5_0.bin")
+    }
+
     /// The Silero VAD CoreML bundle installed by `fetch-models.sh`.
     public static var vadModelFile: URL {
         modelsDir

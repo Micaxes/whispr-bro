@@ -140,6 +140,19 @@ public actor LlamaCppEngine {
         prefixTokenCount = 0
     }
 
+    /// Defense-in-depth against a leak: if an engine instance is ever dropped
+    /// while still loaded (e.g. a superseded model swap), free its C/Metal
+    /// resources here so the ≈1GB model + KV cache don't leak. A no-op when
+    /// already unloaded (all pointers nil). Freeing one engine's own model/
+    /// context while the shared Metal device stays alive is the normal path —
+    /// distinct from the device teardown that must happen with no model loaded.
+    deinit {
+        if let sampler { llama_sampler_free(sampler) }
+        if let batch { llama_batch_free(batch) }
+        if let ctx { llama_free(ctx) }
+        if let model { llama_model_free(model) }
+    }
+
     /// Restore a clean state after a hung/failed/aborted generation (spec §4
     /// EngineSupervisor): wipe the KV cache, reset the sampler, and re-prime
     /// the system-prompt prefix — no full model reload needed.

@@ -56,7 +56,9 @@ final class PipelineController: ObservableObject {
     private let audio = AudioEngine()
     private let hotkey = HotkeyManager()
     private let inserter = TextInserter()
-    private let asr: AsrEngine = ParakeetEngine(modelsDir: Paths.modelsDir)
+    // Chosen at launch from the persisted engine kind (spec §11.7 fallback
+    // slot). Parakeet unless whisper.cpp is both selected and installed.
+    private let asr: AsrEngine = AsrEngineKind.makeSelectedEngine()
     private let vad = VadGate(modelFile: Paths.vadModelFile)
     private var styleRules = StyleRules()
     private var config = AppConfig()
@@ -65,8 +67,34 @@ final class PipelineController: ObservableObject {
     private let hud = HUDController()
     private let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "pipeline")
 
-    private let llmModel = LlmCatalog.default
-    private let formatter: TextFormatter
+    /// Currently selected formatting model (persisted). The engine + formatter
+    /// are rebuilt when this changes (see `selectLLM`).
+    @Published private(set) var llmModelKey: String
+    private var llmModel: LlmModelSpec { LlmCatalog.spec(key: llmModelKey) ?? LlmCatalog.default }
+    private var engine: LlamaCppEngine
+    private var formatter: TextFormatter
+
+    /// Idle-LLM-unload (spec §11.7): free the ~1GB model + KV cache after the
+    /// LLM has sat unused, reloading (~1–2s) on the next dictation. Off by
+    /// default; both settings persist. Safe because the engine is an actor —
+    /// an unload can never interleave with an in-flight decode.
+    @Published var idleUnloadEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(idleUnloadEnabled, forKey: "idleUnloadEnabled")
+            if idleUnloadEnabled { armIdleUnloadTimer() }
+            else { idleUnloadTimer?.invalidate(); idleUnloadTimer = nil }
+        }
+    }
+    @Published var idleUnloadMinutes: Int {
+        didSet {
+            UserDefaults.standard.set(idleUnloadMinutes, forKey: "idleUnloadMinutes")
+            if idleUnloadEnabled { armIdleUnloadTimer() }
+        }
+    }
+    private var idleUnloadTimer: Timer?
+    /// True while the model is unloaded specifically to save idle memory, so the
+    /// next dictation knows to reload it (vs. an LLM that was never available).
+    private var llmUnloadedForIdle = false
 
     @Published private(set) var rawMode = false
     /// Apply per-app formatting register (Slack casual / Mail formal / …).
@@ -94,11 +122,133 @@ final class PipelineController: ObservableObject {
     private var errorGeneration = 0
 
     init() {
+        // Restore the selected model (fall back to the frozen default if the
+        // stored key is unknown), then build the engine for it.
+        let storedKey = UserDefaults.standard.string(forKey: "llmModelKey")
+        let spec = storedKey.flatMap { LlmCatalog.spec(key: $0) } ?? LlmCatalog.default
+        llmModelKey = spec.key
+        idleUnloadEnabled = UserDefaults.standard.object(forKey: "idleUnloadEnabled") as? Bool ?? false
+        idleUnloadMinutes = UserDefaults.standard.object(forKey: "idleUnloadMinutes") as? Int ?? 5
         let engine = LlamaCppEngine(
-            modelPath: llmModel.fileURL,
-            promptBuilder: PromptBuilder(family: llmModel.family)
+            modelPath: spec.fileURL,
+            promptBuilder: PromptBuilder(family: spec.family)
         )
+        self.engine = engine
         formatter = TextFormatter(engine: engine)
+    }
+
+    // MARK: - LLM lifecycle (preset switch + idle unload)
+    //
+    // Every engine load/unload/swap runs through ONE serial chain (`llmChain`)
+    // so they can never interleave. Without it, two rapid preset switches — or
+    // a switch during the ~1–2s startup load — could reassign `engine` while a
+    // load was in flight and orphan a fully-loaded engine whose ≈1GB C/Metal
+    // resources would leak. Serializing also removes the idle-unload↔dictation
+    // race: the dictation's reload is ordered after any pending idle unload.
+
+    /// Serial executor for LLM engine lifecycle ops; each awaits the previous.
+    private var llmChain: Task<Void, Never> = Task {}
+    /// Set once at teardown so no lifecycle op reloads the engine after
+    /// shutdown() has freed it (which would exit with a live Metal model and
+    /// trip the ggml-metal teardown assert).
+    private var llmShuttingDown = false
+
+    @discardableResult
+    private func llmSerial(_ op: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
+        let prev = llmChain
+        let t = Task { @MainActor in await prev.value; await op() }
+        llmChain = t
+        return t
+    }
+
+    /// Switch the formatting model. Not-installed presets are ignored (the UI
+    /// disables them; this is the backstop). The choice is persisted only after
+    /// a successful load, so a present-but-corrupt model can't brick formatting
+    /// on every future launch.
+    func selectLLM(key: String) {
+        guard key != llmModelKey, let spec = LlmCatalog.spec(key: key) else { return }
+        guard spec.isInstalled else {
+            log.info("ignoring LLM selection '\(key)' — not installed")
+            return
+        }
+        llmModelKey = key   // drives the picker + coalescing; persisted on success
+        llmSerial { await self.reloadLLM(spec: spec) }
+    }
+
+    /// Rebuild the engine for `spec`. Serialized; coalesces — if a newer
+    /// selection superseded this one while it waited, it skips without touching
+    /// the (now-correct) engine.
+    private func reloadLLM(spec: LlmModelSpec) async {
+        guard !llmShuttingDown else { return }
+        guard spec.key == llmModelKey else { return }   // superseded by a later selectLLM
+        idleUnloadTimer?.invalidate(); idleUnloadTimer = nil
+        await engine.unload()   // free the outgoing engine's GPU/C resources first
+        let newEngine = LlamaCppEngine(
+            modelPath: spec.fileURL, promptBuilder: PromptBuilder(family: spec.family))
+        engine = newEngine
+        formatter = TextFormatter(engine: newEngine)
+        llmUnloadedForIdle = false
+        do {
+            try await formatter.load()
+            llmAvailable = true
+            UserDefaults.standard.set(spec.key, forKey: "llmModelKey")   // persist only good keys
+            log.info("loaded LLM '\(spec.key)'")
+        } catch {
+            llmAvailable = false
+            log.warning("LLM '\(spec.key)' load failed, using raw cleanup: \(error.localizedDescription)")
+        }
+        armIdleUnloadTimer()
+    }
+
+    /// Reload the model if it was unloaded to save idle memory. Called on the
+    /// dictation path just before formatting; serialized after any pending idle
+    /// unload and awaited so formatting sees a loaded engine. No-op otherwise.
+    private func ensureLLMLoaded() async {
+        await llmSerial {
+            guard !self.llmShuttingDown, self.llmUnloadedForIdle, self.llmModel.isInstalled else { return }
+            do {
+                try await self.formatter.load()
+                self.llmUnloadedForIdle = false
+                self.llmAvailable = true
+                // Restart the idle countdown: this reload may be the dictation's
+                // last action (e.g. it ends on the secure-field refuse path,
+                // which doesn't re-arm), and the one-shot timer that unloaded us
+                // is already spent — without this the model would stay resident.
+                self.armIdleUnloadTimer()
+                self.log.info("reloaded LLM after idle unload")
+            } catch {
+                self.llmAvailable = false
+                self.log.warning("idle reload failed, using raw cleanup: \(error.localizedDescription)")
+            }
+        }.value
+    }
+
+    private func armIdleUnloadTimer() {
+        idleUnloadTimer?.invalidate()
+        guard idleUnloadEnabled, llmAvailable else { idleUnloadTimer = nil; return }
+        let interval = TimeInterval(max(1, idleUnloadMinutes) * 60)
+        // One-shot on .common mode so an open menu-bar menu (event-tracking loop)
+        // doesn't suspend the countdown — matching the controller's other timers.
+        let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.unloadLLMForIdle() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        idleUnloadTimer = timer
+    }
+
+    private func unloadLLMForIdle() {
+        llmSerial {
+            guard !self.llmShuttingDown, self.idleUnloadEnabled, self.llmAvailable, !self.llmUnloadedForIdle else { return }
+            // Fired while a dictation was running: don't unload mid-decode — re-
+            // arm to retry once idle. (Terminal dictation paths that don't re-arm
+            // — error/refuse/empty — rely on this.)
+            guard self.state == .idle else { self.armIdleUnloadTimer(); return }
+            // Set BEFORE the await so a dictation whose reload op is serialized
+            // after this one knows to reload.
+            self.llmUnloadedForIdle = true
+            await self.engine.unload()
+            self.log.info("unloaded LLM after \(self.idleUnloadMinutes)min idle (frees ~1GB; reloads on next dictation)")
+        }
     }
 
     func startup() {
@@ -159,6 +309,7 @@ final class PipelineController: ObservableObject {
                 do {
                     try await formatter.load()
                     llmAvailable = true
+                    armIdleUnloadTimer()
                 } catch {
                     llmAvailable = false
                     log.warning("LLM unavailable, using raw cleanup: \(error.localizedDescription)")
@@ -279,6 +430,13 @@ final class PipelineController: ObservableObject {
 
     /// Free GPU-backed models before the process exits (spec §12 clean quit).
     func shutdown() async {
+        // Latch teardown first: every lifecycle op guards on this, so any op
+        // still queued — or appended while we drain below — becomes a no-op and
+        // can't re-load the engine after we free it (which would exit with a
+        // live Metal model and trip the ggml-metal teardown assert).
+        llmShuttingDown = true
+        idleUnloadTimer?.invalidate(); idleUnloadTimer = nil
+        await llmChain.value   // let any in-flight (already-past-guard) op finish
         await formatter.shutdown()
     }
 
@@ -496,6 +654,10 @@ final class PipelineController: ObservableObject {
             // their casing via preserveCasingFor.
             let raw = rawMode
             let style = effectiveStyleDirective(dictionary: dict)
+            // Reload the model first if it was unloaded to save idle memory
+            // (~1–2s, only after a long idle gap and only when the LLM path is
+            // actually used — raw mode / fast path skip the reload).
+            if !raw { await ensureLLMLoaded() }
             let (text, formatSeconds) = await measured {
                 await formatter.format(rawText, rawMode: raw, styleDirective: style,
                                        preserveCasingFor: dict.lowercasedTargets)
@@ -526,6 +688,8 @@ final class PipelineController: ObservableObject {
                 self.log.info("dictation (\(wasLocked ? "locked" : "hold")): \"\(text, privacy: .private)\" [\(timings.description)]")
                 self.state = .idle
                 self.hud.hide()
+                // Restart the idle-unload countdown now the dictation is done.
+                self.armIdleUnloadTimer()
                 // Persist to history OFF the insertion path — a detached Task
                 // so the DB write never blocks the dictation completing. Skipped
                 // entirely when the user disabled history.

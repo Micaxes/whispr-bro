@@ -25,6 +25,14 @@ struct WhisprBroApp: App {
         }
         .windowResizability(.contentMinSize)
         .defaultSize(width: 760, height: 480)
+
+        // Preferences: model integrity, formatting-model preset, idle unload,
+        // ASR engine, privacy. Same accessory→regular promotion as History.
+        Window("Settings", id: "settings") {
+            SettingsView(pipeline: pipeline)
+                .onDisappear { ActivationPolicy.deactivateIfNoWindows() }
+        }
+        .windowResizability(.contentSize)
     }
 
     private var statusSymbol: String {

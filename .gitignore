@@ -13,3 +13,7 @@ DerivedData/
 # llama.cpp build cache (clone + cmake build)
 /.build-llama/
 /Vendor/llama.xcframework
+
+# generated audio fixtures (scripts/make-fixture.sh) and compiled tripwire
+/Fixtures/
+scripts/net-tripwire.dylib
