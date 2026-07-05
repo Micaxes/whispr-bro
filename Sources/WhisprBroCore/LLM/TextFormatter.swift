@@ -50,17 +50,18 @@ public actor TextFormatter {
     /// failure, timeout, or raw/fast-path degrades to the rule-based result so
     /// a dictation always lands.
     public func format(
-        _ raw: String, rawMode: Bool, styleDirective: String = ""
+        _ raw: String, rawMode: Bool, styleDirective: String = "",
+        preserveCasingFor: Set<String> = []
     ) async -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
 
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
         if rawMode || wordCount < config.fastPathWordLimit {
-            return Self.ruleBasedCleanup(trimmed)
+            return Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor)
         }
         guard await engine.isLoaded else {
-            return Self.ruleBasedCleanup(trimmed)
+            return Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor)
         }
 
         let cap = max(config.maxTokensFloor, Int(Double(wordCount) * config.tokensPerWord))
@@ -69,14 +70,14 @@ public actor TextFormatter {
                 trimmed, styleDirective: styleDirective,
                 maxTokens: cap, timeout: config.hangTimeout)
             let cleaned = Self.sanitize(formatted)
-            return cleaned.isEmpty ? Self.ruleBasedCleanup(trimmed) : cleaned
+            return cleaned.isEmpty ? Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor) : cleaned
         } catch WhisprError.formattingTimedOut {
             log.error("format aborted (>\(self.config.hangTimeout.description)); re-priming, using raw")
             await engine.recover()
-            return Self.ruleBasedCleanup(trimmed)
+            return Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor)
         } catch {
             log.error("format failed: \(error.localizedDescription); using raw")
-            return Self.ruleBasedCleanup(trimmed)
+            return Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor)
         }
     }
 
@@ -85,16 +86,28 @@ public actor TextFormatter {
     /// Minimal deterministic cleanup for the fast path / fallback: capitalize
     /// the first letter and ensure terminal punctuation. Parakeet already
     /// emits most punctuation, so this is intentionally conservative.
-    static func ruleBasedCleanup(_ text: String) -> String {
+    /// `preserveCasingFor` = lowercased dictionary targets whose casing must
+    /// survive (so a leading "npm" isn't up-cased to "Npm").
+    static func ruleBasedCleanup(_ text: String, preserveCasingFor: Set<String> = []) -> String {
         var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = s.first else { return s }
-        if first.isLowercase {
+        // Capitalize the first letter — UNLESS the leading token already carries
+        // deliberate mixed casing (a dictionary identifier like "getUserData")
+        // or is itself a dictionary target (like "npm").
+        let leading = String(s.prefix { !$0.isWhitespace })
+        let isDictionaryTerm = preserveCasingFor.contains(leading.lowercased())
+        if first.isLowercase, !isDictionaryTerm, !leadingTokenHasInternalUppercase(s) {
             s.replaceSubrange(s.startIndex...s.startIndex, with: String(first).uppercased())
         }
         if let last = s.last, !".!?".contains(last) {
             s.append(".")
         }
         return s
+    }
+
+    private static func leadingTokenHasInternalUppercase(_ s: String) -> Bool {
+        let token = s.prefix { !$0.isWhitespace }
+        return token.dropFirst().contains { $0.isUppercase }
     }
 
     // MARK: - Output sanitizer

@@ -58,7 +58,10 @@ final class PipelineController: ObservableObject {
     private let inserter = TextInserter()
     private let asr: AsrEngine = ParakeetEngine(modelsDir: Paths.modelsDir)
     private let vad = VadGate(modelFile: Paths.vadModelFile)
-    private let styleRules = StyleRules()
+    private var styleRules = StyleRules()
+    private var config = AppConfig()
+    private var dictionary = DictionaryEngine(rules: [])
+    private var categoryOverrides: [String: AppCategory] = [:]
     private let hud = HUDController()
     private let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "pipeline")
 
@@ -92,6 +95,8 @@ final class PipelineController: ObservableObject {
     }
 
     func startup() {
+        ConfigStore.ensureDefault()
+        applyConfig(ConfigStore.load())
         hud.levelProvider = { [weak self] in self?.audio.lastRMS ?? 0 }
         hotkey.onKeyDown = { [weak self] in self?.hotkeyPressed() }
         hotkey.onKeyUp = { [weak self] in self?.hotkeyReleased() }
@@ -187,6 +192,64 @@ final class PipelineController: ObservableObject {
 
     func retry() { Task { await bringUp() } }
 
+    /// Rebuild the dictionary, style overrides, and category map from `config`
+    /// (spec §4 Config mirror; §11.5 live reload).
+    private func applyConfig(_ config: AppConfig) {
+        self.config = config
+        dictionary = DictionaryEngine(rules: config.dictionaryRules)
+        var rules = StyleRules()
+        for (name, directive) in config.style {
+            if let category = AppCategory(rawValue: name.lowercased()) {
+                rules.setDirective(sanitizeDirective(directive), for: category)
+            } else {
+                log.warning("config [style] has unknown category '\(name, privacy: .public)' — ignored")
+            }
+        }
+        styleRules = rules
+        categoryOverrides = config.categories.reduce(into: [:]) { map, pair in
+            if let c = AppCategory(rawValue: pair.value.lowercased()) {
+                map[pair.key] = c
+            } else {
+                log.warning("config [categories] maps to unknown category '\(pair.value, privacy: .public)' — ignored")
+            }
+        }
+    }
+
+    /// Strip chat control-token markup from a hand-edited directive so a config
+    /// value can't inject control tokens into the (parse_special) system prompt.
+    private func sanitizeDirective(_ directive: String) -> String {
+        directive.replacingOccurrences(
+            of: "<\\|[^>]*\\|>", with: "", options: .regularExpression)
+    }
+
+    /// The LLM system-prompt directive: the per-app register (if enabled) plus
+    /// a "preserve these spellings" allowlist of the dictionary's canonical
+    /// targets (capped), so the model doesn't re-spell an unfamiliar term. Both
+    /// live in the KV-cached prefix and only re-prime when they change.
+    private func effectiveStyleDirective(dictionary dict: DictionaryEngine) -> String {
+        var parts: [String] = []
+        if contextAwareStyle {
+            parts.append(styleRules.directive(for: capturedCategory))
+        }
+        let targets = dict.canonicalTargets.prefix(30)
+        if !targets.isEmpty {
+            parts.append("Preserve these spellings exactly, do not alter their "
+                + "casing or spacing: " + targets.joined(separator: ", ") + ".")
+        }
+        // Directives were sanitized at load; targets are user config too.
+        return sanitizeDirective(parts.joined(separator: "\n\n"))
+    }
+
+    /// Re-read config.toml (menu "Reload config"). Live: takes effect on the
+    /// next dictation.
+    func reloadConfig() { applyConfig(ConfigStore.load()) }
+
+    /// Open config.toml in the user's default editor (creating it first).
+    func openConfig() {
+        ConfigStore.ensureDefault()
+        NSWorkspace.shared.open(ConfigStore.url)
+    }
+
     /// Free GPU-backed models before the process exits (spec §12 clean quit).
     func shutdown() async {
         await formatter.shutdown()
@@ -256,7 +319,8 @@ final class PipelineController: ObservableObject {
         }
         // Snapshot the app category NOW — frontmost moves during dictation.
         // Cheap (bundle-id map lookup, no AX IPC), so it's safe on the hot path.
-        capturedCategory = ContextService.frontmostCategory()
+        capturedCategory = AppCategoryResolver.category(
+            bundleId: ContextService.frontmostBundleId(), overrides: categoryOverrides)
 
         isLocked = false
         recordingStartUptime = ProcessInfo.processInfo.systemUptime
@@ -379,9 +443,17 @@ final class PipelineController: ObservableObject {
         do {
             let audioForAsr = trim ? await vad.trim(samples) : samples
             let toTranscribe = audioForAsr.count >= asr.minimumSamples ? audioForAsr : samples
+            // Snapshot the dictionary/style so a menu reload mid-dictation
+            // can't make the substitution and the LLM allowlist disagree.
+            let dict = dictionary
             let (result, asrSeconds) = try await measured { try await asr.transcribe(toTranscribe) }
             timings.asrSeconds = asrSeconds
-            let rawText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Personal dictionary ONCE, BEFORE formatting (so the LLM sees
+            // corrected terms) and in raw mode alike (spec §4 DictionaryEngine).
+            // Applied once, not before+after: a second pass would duplicate
+            // words for an expanding rule (target contains its source).
+            let rawText = dict.apply(
+                result.text.trimmingCharacters(in: .whitespacesAndNewlines))
             guard !rawText.isEmpty else {
                 state = .idle
                 hud.hide()
@@ -389,11 +461,14 @@ final class PipelineController: ObservableObject {
             }
 
             // Stage 2: LLM auto-edit (or rule-based fast path / raw fallback).
-            // Formatter.format never throws — a dictation always lands.
+            // Formatter.format never throws — a dictation always lands. The LLM
+            // path preserves terms via the allowlist; the raw path preserves
+            // their casing via preserveCasingFor.
             let raw = rawMode
-            let style = contextAwareStyle ? styleRules.directive(for: capturedCategory) : ""
+            let style = effectiveStyleDirective(dictionary: dict)
             let (text, formatSeconds) = await measured {
-                await formatter.format(rawText, rawMode: raw, styleDirective: style)
+                await formatter.format(rawText, rawMode: raw, styleDirective: style,
+                                       preserveCasingFor: dict.lowercasedTargets)
             }
             timings.formatSeconds = formatSeconds
 
