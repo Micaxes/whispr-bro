@@ -65,6 +65,10 @@ struct MenuBarView: View {
         } else if case .idle = pipeline.state {
             Text("AI cleanup off (model not installed)").font(.caption)
         }
+        Divider()
+        Button("Edit dictionary & config…") { pipeline.openConfig() }
+        Button("Reload config") { pipeline.reloadConfig() }
+
         Text("Hold Right ⌥ to dictate · double-tap to lock hands-free")
         Button("Quit whispr-bro") {
             NSApplication.shared.terminate(nil)

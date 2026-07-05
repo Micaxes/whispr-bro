@@ -11,11 +11,11 @@ import AppKit
 /// a password or a whole document into the LLM prompt. Deferred until it can be
 /// made reliably safe.
 public enum ContextService {
-    /// Which category of app is frontmost, from an IPC-free bundle-id map.
-    /// Must be sampled AT key-press — frontmost/focus move during dictation.
+    /// The frontmost app's bundle id (IPC-free). Sample AT key-press — frontmost
+    /// moves during dictation. The pipeline resolves the category with the
+    /// config's overrides applied.
     @MainActor
-    public static func frontmostCategory() -> AppCategory {
-        let id = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
-        return AppCategoryResolver.category(bundleId: id)
+    public static func frontmostBundleId() -> String? {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
     }
 }

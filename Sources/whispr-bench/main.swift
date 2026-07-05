@@ -29,6 +29,8 @@ struct WhisprBench {
             await runE2E(URL(fileURLWithPath: args[1]), key: args.count >= 3 ? args[2] : LlmCatalog.default.key)
         case "style" where args.count >= 2:
             await runStyle(transcript: args[1])
+        case "dict" where args.count >= 2:
+            await runDict(transcript: args[1])
         default:
             print("""
             usage:
@@ -39,6 +41,7 @@ struct WhisprBench {
                                                       #   key: \(LlmCatalog.all.map(\.key).joined(separator: " | "))
               whispr-bench e2e <audio-file> [key]     # full ASR -> LLM format on a fixture, with stage timings
               whispr-bench style "<text>"             # format one sentence under every per-app style (default model)
+              whispr-bench dict "<text>"              # full dictionary→LLM→dictionary flow (uses config.toml)
 
             models dir: \(Paths.modelsDir.path)
             install models once with: scripts/fetch-models.sh
@@ -123,6 +126,37 @@ struct WhisprBench {
             }
             print(String(format: "%-10@ (%.0fms): %@", category.rawValue as NSString, seconds * 1000, out as NSString))
         }
+        await engine.unload()
+    }
+
+    static func runDict(transcript: String) async {
+        let config = ConfigStore.load()
+        let dict = DictionaryEngine(rules: config.dictionaryRules)
+        print("config.toml: \(ConfigStore.url.path)")
+        print("dictionary terms: \(dict.canonicalTargets.joined(separator: ", "))\n")
+
+        let corrected = dict.apply(transcript)
+        print("input:      \(transcript)")
+        print("after dict: \(corrected)")
+
+        let spec = LlmCatalog.default
+        guard spec.isInstalled else { print("\n(LLM not installed — dict-only shown)"); return }
+        let engine = LlamaCppEngine(modelPath: spec.fileURL, promptBuilder: PromptBuilder(family: spec.family))
+        let formatter = TextFormatter(engine: engine)
+        do { try await formatter.load() } catch { print("error: \(error.localizedDescription)"); exit(1) }
+
+        // Mirror the pipeline: spellings allowlist in the style directive.
+        let targets = dict.canonicalTargets.prefix(30)
+        let style = targets.isEmpty ? "" :
+            "Preserve these spellings exactly, do not alter their casing or spacing: " + targets.joined(separator: ", ") + "."
+        // Pipeline applies the dictionary ONCE (before); the LLM allowlist +
+        // the raw capitalizer-skip preserve terms without a second pass.
+        let llm = await formatter.format(corrected, rawMode: false, styleDirective: style,
+                                         preserveCasingFor: dict.lowercasedTargets)
+        print("after LLM:  \(llm)  (final inserted)")
+
+        let rawFinal = await formatter.format(corrected, rawMode: true, preserveCasingFor: dict.lowercasedTargets)
+        print("\nraw mode (LLM off): \(rawFinal)")
         await engine.unload()
     }
 

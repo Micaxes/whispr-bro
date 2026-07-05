@@ -43,9 +43,11 @@ public enum AppCategoryResolver {
         "notion.id": .notes,
     ]
 
-    /// Resolve a bundle id to a category. IPC-free: just a map + prefix match.
-    public static func category(bundleId: String?) -> AppCategory {
+    /// Resolve a bundle id to a category. IPC-free: user `overrides` (from
+    /// config.toml) win, then the built-in map, then the JetBrains prefix.
+    public static func category(bundleId: String?, overrides: [String: AppCategory] = [:]) -> AppCategory {
         guard let id = bundleId else { return .unknown }
+        if let c = overrides[id] { return c }
         if let c = byBundleId[id] { return c }
         if id.hasPrefix("com.jetbrains.") { return .ide } // whole JetBrains family
         return .unknown
