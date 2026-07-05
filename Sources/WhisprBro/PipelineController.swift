@@ -58,6 +58,7 @@ final class PipelineController: ObservableObject {
     private let inserter = TextInserter()
     private let asr: AsrEngine = ParakeetEngine(modelsDir: Paths.modelsDir)
     private let vad = VadGate(modelFile: Paths.vadModelFile)
+    private let styleRules = StyleRules()
     private let hud = HUDController()
     private let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "pipeline")
 
@@ -65,6 +66,11 @@ final class PipelineController: ObservableObject {
     private let formatter: TextFormatter
 
     @Published private(set) var rawMode = false
+    /// Apply per-app formatting register (Slack casual / Mail formal / …).
+    @Published var contextAwareStyle = true
+
+    /// App category captured at key-press for the current dictation.
+    private var capturedCategory: AppCategory = .unknown
     @Published private(set) var llmAvailable = false
 
     private var permissionPollTimer: Timer?
@@ -248,6 +254,10 @@ final class PipelineController: ObservableObject {
             refuse("Won't dictate while secure input is active")
             return
         }
+        // Snapshot the app category NOW — frontmost moves during dictation.
+        // Cheap (bundle-id map lookup, no AX IPC), so it's safe on the hot path.
+        capturedCategory = ContextService.frontmostCategory()
+
         isLocked = false
         recordingStartUptime = ProcessInfo.processInfo.systemUptime
         state = .recording
@@ -381,7 +391,10 @@ final class PipelineController: ObservableObject {
             // Stage 2: LLM auto-edit (or rule-based fast path / raw fallback).
             // Formatter.format never throws — a dictation always lands.
             let raw = rawMode
-            let (text, formatSeconds) = await measured { await formatter.format(rawText, rawMode: raw) }
+            let style = contextAwareStyle ? styleRules.directive(for: capturedCategory) : ""
+            let (text, formatSeconds) = await measured {
+                await formatter.format(rawText, rawMode: raw, styleDirective: style)
+            }
             timings.formatSeconds = formatSeconds
 
             // Authoritative secure check (system + focused AX field). Focus may

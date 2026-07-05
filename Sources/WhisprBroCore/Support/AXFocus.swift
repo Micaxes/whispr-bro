@@ -27,4 +27,13 @@ public enum AXFocus {
         else { return nil }
         return value
     }
+
+    /// The parent element, or nil.
+    public static func parent(_ element: AXUIElement) -> AXUIElement? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &ref) == .success,
+              let ref, CFGetTypeID(ref) == AXUIElementGetTypeID()
+        else { return nil }
+        return (ref as! AXUIElement)
+    }
 }

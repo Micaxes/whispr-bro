@@ -40,6 +40,10 @@ public actor LlamaCppEngine {
     private var sampler: UnsafeMutablePointer<llama_sampler>?
     private var batch: llama_batch?
     private var prefixTokenCount: Int32 = 0
+    /// The per-app style directive currently baked into the cached prefix. A
+    /// change re-primes (rare — coarse categories). Set only after a re-prime
+    /// SUCCEEDS, so a failed re-prime retries on the next dictation.
+    private var currentStyle: String = ""
     private let abort = AbortFlag()
     private static var backendInitialized = false
 
@@ -97,13 +101,34 @@ public actor LlamaCppEngine {
         llama_sampler_chain_add(chain, llama_sampler_init_greedy())
         self.sampler = chain
 
-        // Prime the KV cache with the (stable) system-prompt prefix once.
-        let prefixTokens = tokenizeScaffolding(promptBuilder.prefix())
-        prefixTokenCount = Int32(prefixTokens.count)
-        guard decode(prefixTokens, startPos: 0) else {
+        // Prime the KV cache with the system-prompt prefix (+ current style).
+        guard primePrefix() else {
             throw WhisprError.modelLoadFailed(modelPath)
         }
         succeeded = true
+    }
+
+    /// (Re)decode the system-prompt prefix (base + `currentStyle`) into the KV
+    /// cache from position 0. Shared by load / recover / style change. Wipes any
+    /// existing cache, then decodes the prefix BOUNDED by an abort deadline so a
+    /// wedged GPU decode can't hang the actor (this runs on the format hot path
+    /// on a category change). Returns false on decode error/timeout.
+    @discardableResult
+    private func primePrefix(timeoutMs: Int = 5000) -> Bool {
+        guard let ctx, let sampler else { return false }
+        abort.arm()
+        let flag = abort
+        let deadline = Task.detached {
+            do { try await Task.sleep(for: .milliseconds(timeoutMs)) } catch { return }
+            flag.trip()
+        }
+        defer { deadline.cancel() }
+
+        llama_memory_clear(llama_get_memory(ctx), true)
+        llama_sampler_reset(sampler)
+        let prefixTokens = tokenizeScaffolding(promptBuilder.prefix(styleDirective: currentStyle))
+        prefixTokenCount = Int32(prefixTokens.count)
+        return decode(prefixTokens, startPos: 0)
     }
 
     public func unload() {
@@ -119,27 +144,42 @@ public actor LlamaCppEngine {
     /// EngineSupervisor): wipe the KV cache, reset the sampler, and re-prime
     /// the system-prompt prefix — no full model reload needed.
     public func recover() {
-        guard let ctx, let sampler else { return }
-        // recover() is called right after a timeout, when the abort flag is
-        // still tripped — reset it or the re-prime decode aborts immediately
-        // and the prefix is never restored.
-        abort.arm()
-        let memory = llama_get_memory(ctx)
-        llama_memory_clear(memory, true)
-        llama_sampler_reset(sampler)
-        let prefixTokens = tokenizeScaffolding(promptBuilder.prefix())
-        prefixTokenCount = Int32(prefixTokens.count)
-        _ = decode(prefixTokens, startPos: 0)
+        // primePrefix() arms the abort flag (recover() runs right after a
+        // timeout, when it's still tripped — a residual trip would abort the
+        // re-prime decode and leave the prefix unrestored). If it fails, force
+        // the next format() to re-prime (its cache is now wiped) by clearing
+        // the remembered style so the compare-and-reprime branch fires.
+        if !primePrefix() {
+            currentStyle = "\u{1}" // sentinel that no real directive equals
+        }
     }
 
     // MARK: - Format
 
-    /// Reformat `transcript`. Generation is capped at `maxTokens` (≈2× input)
-    /// and bounded by `timeout` via the abort callback. Reuses the cached
-    /// prefix. Throws `formattingTimedOut` if the abort fired.
-    public func format(_ transcript: String, maxTokens: Int, timeout: Duration) throws -> String {
+    /// Reformat `transcript` for the given per-app `styleDirective` (baked into
+    /// the cached system prefix). Re-primes only when the style CHANGES, and
+    /// only commits the new style if the (bounded) re-prime succeeds. Generation
+    /// is capped at `maxTokens` (≈2× input) and bounded by `timeout` via the
+    /// abort callback. Throws `formattingTimedOut`/`formattingFailed`.
+    public func format(
+        _ transcript: String, styleDirective: String = "",
+        maxTokens: Int, timeout: Duration
+    ) throws -> String {
         guard let ctx, let vocab, let sampler else {
             throw WhisprError.modelsNotFound(modelPath)
+        }
+
+        // Style change → re-prime the cached prefix with the NEW style.
+        // currentStyle must be set BEFORE primePrefix() (it bakes currentStyle
+        // into the prefix); on a failed/timed-out re-prime we set a sentinel so
+        // the next dictation re-primes rather than trusting a wiped cache.
+        if styleDirective != currentStyle {
+            let ms = Int(timeout.components.seconds * 1000 + timeout.components.attoseconds / 1_000_000_000_000_000)
+            currentStyle = styleDirective
+            guard primePrefix(timeoutMs: max(1, ms)) else {
+                currentStyle = "\u{1}" // no real directive equals this → forces retry
+                throw WhisprError.formattingFailed
+            }
         }
 
         // Drop everything after the cached prefix so only the new turn is

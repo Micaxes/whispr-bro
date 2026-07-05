@@ -58,6 +58,10 @@ struct MenuBarView: View {
                 get: { pipeline.rawMode },
                 set: { _ in pipeline.toggleRawMode() }
             ))
+            Toggle("Match app style (Slack casual, Mail formal…)", isOn: Binding(
+                get: { pipeline.contextAwareStyle },
+                set: { pipeline.contextAwareStyle = $0 }
+            ))
         } else if case .idle = pipeline.state {
             Text("AI cleanup off (model not installed)").font(.caption)
         }

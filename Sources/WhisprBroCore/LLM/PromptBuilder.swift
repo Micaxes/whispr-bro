@@ -34,19 +34,23 @@ public struct PromptBuilder: Sendable {
     cleaned text with no preamble or quotation marks.
     """
 
-    /// The stable prefix (system turn) — decoded once and KV-cached.
-    public func prefix() -> String {
+    /// The system-turn prefix, KV-cached. The per-app style directive is
+    /// appended to the system prompt — a 1.5B follows a system-turn register
+    /// far more reliably than a user-turn aside — and re-primed only when the
+    /// (coarse) category changes, which is rare.
+    public func prefix(styleDirective: String = "") -> String {
+        let sys = styleDirective.isEmpty ? systemPrompt : systemPrompt + "\n\n" + styleDirective
         switch family {
         case .llama3:
             return """
             <|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-            \(systemPrompt)<|eot_id|>
+            \(sys)<|eot_id|>
             """
         case .qwen, .qwen3:
             return """
             <|im_start|>system
-            \(systemPrompt)<|im_end|>
+            \(sys)<|im_end|>
             """
         }
     }

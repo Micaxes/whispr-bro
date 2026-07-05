@@ -27,6 +27,8 @@ struct WhisprBench {
             await runLlm(key: args[1])
         case "e2e" where args.count >= 2:
             await runE2E(URL(fileURLWithPath: args[1]), key: args.count >= 3 ? args[2] : LlmCatalog.default.key)
+        case "style" where args.count >= 2:
+            await runStyle(transcript: args[1])
         default:
             print("""
             usage:
@@ -36,6 +38,7 @@ struct WhisprBench {
               whispr-bench llm <key>                  # measurement gate: time a model's formatting pass
                                                       #   key: \(LlmCatalog.all.map(\.key).joined(separator: " | "))
               whispr-bench e2e <audio-file> [key]     # full ASR -> LLM format on a fixture, with stage timings
+              whispr-bench style "<text>"             # format one sentence under every per-app style (default model)
 
             models dir: \(Paths.modelsDir.path)
             install models once with: scripts/fetch-models.sh
@@ -97,6 +100,29 @@ struct WhisprBench {
                          avg * 1000, best * 1000, worst * 1000, latencies.count))
         }
         // Free GPU buffers before exit or ggml-metal asserts at teardown.
+        await engine.unload()
+    }
+
+    static func runStyle(transcript: String) async {
+        let spec = LlmCatalog.default
+        guard spec.isInstalled else {
+            print("default model not installed; run scripts/fetch-llm-models.sh")
+            exit(1)
+        }
+        let engine = LlamaCppEngine(modelPath: spec.fileURL, promptBuilder: PromptBuilder(family: spec.family))
+        let formatter = TextFormatter(engine: engine)
+        do { try await formatter.load() } catch {
+            print("error: \(error.localizedDescription)"); exit(1)
+        }
+        let rules = StyleRules()
+        print("transcript: \(transcript)\n")
+        for category in [AppCategory.messaging, .mail, .ide, .terminal, .notes, .unknown] {
+            let directive = rules.directive(for: category)
+            let (out, seconds) = await measured {
+                await formatter.format(transcript, rawMode: false, styleDirective: directive)
+            }
+            print(String(format: "%-10@ (%.0fms): %@", category.rawValue as NSString, seconds * 1000, out as NSString))
+        }
         await engine.unload()
     }
 
