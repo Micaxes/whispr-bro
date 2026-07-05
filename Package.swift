@@ -14,6 +14,7 @@ let package = Package(
         // version-sensitive (v2 blankId vs v3) — bump deliberately.
         .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.15.4"),
         .package(url: "https://github.com/apple/swift-collections.git", from: "1.1.0"),
+        .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.11.1"),
     ],
     targets: [
         // Prebuilt by scripts/build-llama-xcframework.sh (pinned llama.cpp tag,
@@ -24,6 +25,7 @@ let package = Package(
             dependencies: [
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Collections", package: "swift-collections"),
+                .product(name: "GRDB", package: "GRDB.swift"),
                 "llama",
             ]
         ),

@@ -14,6 +14,17 @@ struct WhisprBroApp: App {
             Image(systemName: statusSymbol)
         }
         .menuBarExtraStyle(.menu)
+
+        // A single, resizable History window. The app is LSUIElement
+        // (accessory), so ActivationPolicy promotes it to .regular while the
+        // window is open — otherwise the window opens unfocused/behind.
+        Window("History", id: "history") {
+            HistoryView()
+                .frame(minWidth: 520, minHeight: 320)
+                .onDisappear { ActivationPolicy.deactivateIfNoWindows() }
+        }
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 760, height: 480)
     }
 
     private var statusSymbol: String {
@@ -62,4 +73,25 @@ private final class ReplyGate {
 
 extension PipelineController {
     static let shared = PipelineController()
+}
+
+/// Toggles the app between accessory (menu-bar only) and regular (Dock icon +
+/// focusable windows), so the History window is only a full app while it's open.
+enum ActivationPolicy {
+    @MainActor static func activate() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @MainActor static func deactivateIfNoWindows() {
+        // Defer a tick so the closing window is gone from NSApp.windows.
+        DispatchQueue.main.async {
+            let hasStandardWindow = NSApp.windows.contains {
+                $0.isVisible && $0.canBecomeMain && !($0 is NSPanel)
+            }
+            if !hasStandardWindow {
+                NSApp.setActivationPolicy(.accessory)
+            }
+        }
+    }
 }

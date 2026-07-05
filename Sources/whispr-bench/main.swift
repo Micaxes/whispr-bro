@@ -31,6 +31,8 @@ struct WhisprBench {
             await runStyle(transcript: args[1])
         case "dict" where args.count >= 2:
             await runDict(transcript: args[1])
+        case "history":
+            await runHistory()
         default:
             print("""
             usage:
@@ -42,6 +44,7 @@ struct WhisprBench {
               whispr-bench e2e <audio-file> [key]     # full ASR -> LLM format on a fixture, with stage timings
               whispr-bench style "<text>"             # format one sentence under every per-app style (default model)
               whispr-bench dict "<text>"              # full dictionary→LLM→dictionary flow (uses config.toml)
+              whispr-bench history                    # FTS5 acceptance: 1k rows, search latency
 
             models dir: \(Paths.modelsDir.path)
             install models once with: scripts/fetch-models.sh
@@ -158,6 +161,37 @@ struct WhisprBench {
         let rawFinal = await formatter.format(corrected, rawMode: true, preserveCasingFor: dict.lowercasedTargets)
         print("\nraw mode (LLM off): \(rawFinal)")
         await engine.unload()
+    }
+
+    static func runHistory() async {
+        let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("whispr-bench-history-\(ProcessInfo.processInfo.processIdentifier).sqlite")
+        try? FileManager.default.removeItem(at: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        guard let store = try? HistoryStore(path: tmp) else { print("could not open store"); exit(1) }
+
+        let words = ["design", "review", "flight", "berlin", "revenue", "churn", "getUserData",
+                     "meeting", "standup", "quarterly", "report", "friday", "board", "thursday"]
+        let epoch = Date(timeIntervalSince1970: 1_700_000_000)
+        let (_, insertSeconds) = await measured { () -> Void in
+            for i in 0..<1000 {
+                let text = (0..<8).map { j in words[(i * 7 + j * 13) % words.count] }.joined(separator: " ")
+                await store.save(HistoryRecord(
+                    createdAt: epoch.addingTimeInterval(Double(i)), appBundleId: "com.apple.mail",
+                    appName: "Mail", rawText: text, formattedText: text.capitalized,
+                    audioMs: 5, asrMs: 90 + i % 40, formatMs: 300 + i % 100, insertMs: 50, totalMs: 445 + i % 140))
+            }
+        }
+        let n = await store.count()
+        print(String(format: "inserted %d rows in %.0fms (%.2fms/row)", n, insertSeconds * 1000, insertSeconds * 1000 / 1000))
+
+        for q in ["berlin flight", "getUserData", "quarterly report thursday"] {
+            let (results, seconds) = await measured { await store.search(q, limit: 50) }
+            let verdict = seconds * 1000 < 50 ? "✅ <50ms" : "⚠️ >50ms"
+            print(String(format: "search \"%@\": %d hits in %.2fms  %@", q, results.count, seconds * 1000, verdict))
+        }
+        let (_, recentSeconds) = await measured { await store.recent(limit: 50) }
+        print(String(format: "recent(50): %.2fms", recentSeconds * 1000))
     }
 
     static func runVad(_ url: URL) async {
