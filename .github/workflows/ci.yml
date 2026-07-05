@@ -1,0 +1,95 @@
+name: CI
+
+# Offline-first project: CI's job is to prove the build stays healthy AND that
+# it never grows a way to reach the network. The headline gate is the offline
+# symbol audit (spec §11.7). The two runtime proofs (tcpdump zero-packet
+# capture, LatencyHarness p99) need the ~2.5GB model set, a Metal GPU, and mic
+# TCC — see the `self-hosted-acceptance` job at the bottom, which a maintainer
+# runs on-device, not on GitHub-hosted runners.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-audit:
+    runs-on: macos-15   # Apple Silicon; matches the only supported target
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || true
+
+      - name: Tooling versions
+        run: swift --version && cmake --version || brew install cmake
+
+      # The llama.xcframework (Metal LLM engine) is gitignored and built from a
+      # pinned llama.cpp tag. Cache both the framework and the clone/build tree
+      # keyed on the build script so a source bump busts the cache.
+      - name: Cache llama.xcframework
+        id: cache-llama
+        uses: actions/cache@v4
+        with:
+          path: |
+            Vendor/llama.xcframework
+            .build-llama
+          key: llama-${{ runner.os }}-${{ hashFiles('scripts/build-llama-xcframework.sh') }}
+
+      - name: Build llama.xcframework
+        if: steps.cache-llama.outputs.cache-hit != 'true'
+        run: scripts/build-llama-xcframework.sh
+
+      - name: Build (debug)
+        run: swift build
+
+      - name: Unit tests (model-free)
+        run: swift test
+
+      - name: Build (release)
+        run: swift build -c release --product WhisprBro
+
+      # Headline gate: fail the build if any networking capability originates
+      # from app code (Tier 1) or a new NSURLSession surface appears (Tier 2).
+      # Audit the executable AND the one dynamic library we ship (llama.framework);
+      # the release binary links it dynamically, so its symbols aren't in the exe.
+      - name: Offline symbol audit
+        run: |
+          scripts/audit-offline.sh
+          LLAMA=$(find Vendor/llama.xcframework -type f -name llama | head -1 || true)
+          if [[ -n "$LLAMA" ]]; then
+            echo "· auditing bundled framework: $LLAMA"
+            scripts/audit-offline.sh "$LLAMA"
+          else
+            echo "FAIL: llama.framework binary not found to audit" >&2; exit 1
+          fi
+
+  # Runtime offline + latency proofs. GitHub-hosted runners have no GPU/models,
+  # so this is a manual, self-hosted job a maintainer triggers on an Apple
+  # Silicon machine that has run scripts/fetch-models.sh and has a fixture wav.
+  self-hosted-acceptance:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, macOS, ARM64]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build llama.xcframework
+        run: scripts/build-llama-xcframework.sh
+      - name: Synthesize fixture
+        run: scripts/make-fixture.sh Fixtures/latency.wav
+      - name: Offline capture (connect tripwire + tcpdump zero-packet, needs sudo)
+        # sudo so check 2 (the tcpdump zero-packet capture) actually runs — the
+        # self-hosted runner must allow passwordless sudo for this to be enforced
+        # rather than skipped. Run on a quiescent machine (host-wide capture).
+        run: sudo scripts/verify-offline-capture.sh Fixtures/latency.wav
+      - name: Latency regression harness (p99 ≤ 700ms)
+        run: |
+          swift build -c release --product whispr-bench
+          BENCH=$(find .build -type f -path '*release*' -name whispr-bench | head -1 || true)
+          "$BENCH" latency Fixtures/latency.wav 20 700

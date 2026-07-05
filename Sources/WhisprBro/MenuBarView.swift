@@ -75,6 +75,11 @@ struct MenuBarView: View {
             get: { pipeline.historyEnabled },
             set: { pipeline.historyEnabled = $0 }
         ))
+        Button("Settings…") {
+            ActivationPolicy.activate()
+            openWindow(id: "settings")
+        }
+        .keyboardShortcut(",")
         Button("Edit dictionary & config…") { pipeline.openConfig() }
         Button("Reload config") { pipeline.reloadConfig() }
 

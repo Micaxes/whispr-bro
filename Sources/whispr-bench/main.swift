@@ -27,12 +27,18 @@ struct WhisprBench {
             await runLlm(key: args[1])
         case "e2e" where args.count >= 2:
             await runE2E(URL(fileURLWithPath: args[1]), key: args.count >= 3 ? args[2] : LlmCatalog.default.key)
+        case "latency" where args.count >= 2:
+            await runLatency(URL(fileURLWithPath: args[1]),
+                             runs: args.count >= 3 ? max(2, Int(args[2]) ?? 20) : 20,
+                             budgetMs: args.count >= 4 ? (Double(args[3]) ?? 700) : 700)
         case "style" where args.count >= 2:
             await runStyle(transcript: args[1])
         case "dict" where args.count >= 2:
             await runDict(transcript: args[1])
         case "history":
             await runHistory()
+        case "verify":
+            runVerify()
         default:
             print("""
             usage:
@@ -42,9 +48,13 @@ struct WhisprBench {
               whispr-bench llm <key>                  # measurement gate: time a model's formatting pass
                                                       #   key: \(LlmCatalog.all.map(\.key).joined(separator: " | "))
               whispr-bench e2e <audio-file> [key]     # full ASR -> LLM format on a fixture, with stage timings
+              whispr-bench latency <audio-file> [runs] [budgetMs]
+                                                      # regression gate: N full-pipeline runs, p50/p99 vs budget
+                                                      #   (default 20 runs, 700ms p99 budget) — exits non-zero if over
               whispr-bench style "<text>"             # format one sentence under every per-app style (default model)
               whispr-bench dict "<text>"              # full dictionary→LLM→dictionary flow (uses config.toml)
               whispr-bench history                    # FTS5 acceptance: 1k rows, search latency
+              whispr-bench verify                     # ModelManager: on-disk sha256 verify of every model set
 
             models dir: \(Paths.modelsDir.path)
             install models once with: scripts/fetch-models.sh
@@ -194,6 +204,29 @@ struct WhisprBench {
         print(String(format: "recent(50): %.2fms", recentSeconds * 1000))
     }
 
+    static func runVerify() {
+        let groups = ModelManager.verifyAll()
+        var allOk = true
+        for g in groups {
+            let mark = g.isVerified ? "✅" : (g.isInstalled ? "⚠️" : "❌")
+            print("\(mark) \(g.displayName): \(g.summary)")
+            // A .missing file in a partial-OK group just means that preset isn't
+            // installed — not a fault to list.
+            for f in g.files where f.state != .ok && !(g.partialOK && f.state == .missing) {
+                print("     \(f.state.rawValue): \(f.relativePath)")
+            }
+            if !g.isVerified && g.id != "llm" { allOk = false } // LLMs are optional presets
+        }
+        if allOk {
+            print("\nverify: core models OK")
+        } else {
+            // Exit non-zero so this can gate a script/CI step (docs/OFFLINE.md
+            // presents `whispr-bench verify` as the tamper/corruption check).
+            print("\nverify: PROBLEMS (see above)")
+            exit(1)
+        }
+    }
+
     static func runVad(_ url: URL) async {
         let samples: [Float]
         do {
@@ -298,6 +331,74 @@ struct WhisprBench {
         print(String(format: "asr+format: %.0fms (+ ~50ms insert ≈ %.0fms end-to-end; Wispr target 700ms p99)",
                      (asrSeconds + formatSeconds) * 1000, (asrSeconds + formatSeconds) * 1000 + 50))
         await engine.unload()
+    }
+
+    /// Latency regression harness (spec §11.7 acceptance: "LatencyHarness p99
+    /// within budget"). Runs the full ASR→format pipeline `runs` times over a
+    /// fixture, reports p50/p99 of the end-of-speech→ready latency (asr+format,
+    /// plus a fixed ~50ms insert allowance), and exits non-zero if p99 exceeds
+    /// the budget so CI fails on a regression after a model swap or a refactor.
+    static func runLatency(_ url: URL, runs: Int, budgetMs: Double) async {
+        let spec = LlmCatalog.default
+        guard spec.isInstalled else {
+            print("model '\(spec.key)' not installed; run scripts/fetch-llm-models.sh \(spec.key)")
+            exit(1)
+        }
+        let samples: [Float]
+        do { samples = try AudioFileLoader.loadSamples16k(url) } catch {
+            print("error: \(error.localizedDescription)"); exit(1)
+        }
+        let asr = ParakeetEngine(modelsDir: Paths.modelsDir)
+        let engine = LlamaCppEngine(modelPath: spec.fileURL, promptBuilder: PromptBuilder(family: spec.family))
+        let formatter = TextFormatter(engine: engine)
+        do { try await asr.load(); try await formatter.load() } catch {
+            print("error: \(error.localizedDescription)"); exit(1)
+        }
+
+        // Insertion latency isn't measured here (it needs a live target); use a
+        // fixed allowance so the budget reflects true end-to-end perceived time.
+        let insertAllowanceMs = 50.0
+        print("model: \(spec.key) | runs: \(runs) (1 warm-up discarded) | budget: \(Int(budgetMs))ms p99")
+        var totals: [Double] = []
+        for run in 1...runs {
+            let (asrResult, asrSeconds) = await measured { () -> AsrResult? in try? await asr.transcribe(samples) }
+            // A broken/misconfigured ASR would transcribe to "" and format
+            // trivially fast — a false PASS. Refuse to grade an empty pipeline.
+            let raw = asrResult?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !raw.isEmpty else {
+                await engine.unload()
+                print("error: transcription produced no text (ASR failed or the fixture is silent); cannot measure latency")
+                exit(1)
+            }
+            let (_, formatSeconds) = await measured { await formatter.format(raw, rawMode: false) }
+            let totalMs = (asrSeconds + formatSeconds) * 1000 + insertAllowanceMs
+            if run == 1 {
+                print(String(format: "  warm-up: %.0fms (discarded — primes Metal pipelines)", totalMs))
+            } else {
+                totals.append(totalMs)
+            }
+        }
+        await engine.unload()
+
+        let p50 = percentile(totals, 0.50)
+        let p99 = percentile(totals, 0.99)
+        let worst = totals.max() ?? 0
+        print(String(format: "asr+format+insert  p50: %.0fms | p99: %.0fms | max: %.0fms | n=%d",
+                     p50, p99, worst, totals.count))
+        if p99 <= budgetMs {
+            print(String(format: "LATENCY HARNESS: PASS (p99 %.0fms ≤ %.0fms)", p99, budgetMs))
+        } else {
+            print(String(format: "LATENCY HARNESS: FAIL (p99 %.0fms > %.0fms budget)", p99, budgetMs))
+            exit(1)
+        }
+    }
+
+    /// Nearest-rank percentile (`q` in 0…1) over an unsorted sample.
+    static func percentile(_ xs: [Double], _ q: Double) -> Double {
+        guard !xs.isEmpty else { return 0 }
+        let sorted = xs.sorted()
+        let rank = Int((q * Double(sorted.count)).rounded(.up))
+        return sorted[min(max(rank, 1), sorted.count) - 1]
     }
 
     static func runMic(seconds: Double) async {

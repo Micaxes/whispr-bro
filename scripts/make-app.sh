@@ -27,6 +27,19 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/WhisprBro"
 
+# Ship the sha256 manifests so the in-app ModelManager can re-verify installed
+# models on disk (Bundle.main/Contents/Resources/manifests — see ModelManager).
+# Per-file with a warning so a missing manifest degrades gracefully (ModelManager
+# handles it) instead of aborting the whole build under `set -euo pipefail`.
+mkdir -p "$APP/Contents/Resources/manifests"
+for m in models.sha256 models-vad.sha256 models-llm.sha256; do
+  if [[ -f "$ROOT/scripts/$m" ]]; then
+    cp "$ROOT/scripts/$m" "$APP/Contents/Resources/manifests/"
+  else
+    echo "warning: manifest $m not found — in-app model verify will show it missing" >&2
+  fi
+done
+
 # The executable links @rpath/llama.framework (a dynamic framework). Embed it
 # and point the rpath at the bundle's Frameworks dir so it resolves at runtime.
 cp -R "$FRAMEWORK" "$APP/Contents/Frameworks/"
