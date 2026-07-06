@@ -35,7 +35,7 @@ public enum ConfigStore {
 
     // MARK: - Parse
 
-    private enum Section { case none, dictEntry, style, categories }
+    private enum Section { case none, dictEntry, style, categories, cleanup }
 
     static func parse(_ text: String) -> AppConfig {
         var config = AppConfig()
@@ -63,8 +63,12 @@ public enum ConfigStore {
                 flush(); section = .style
             } else if line == "[categories]" {
                 flush(); section = .categories
+            } else if line == "[cleanup]" {
+                flush(); section = .cleanup
             } else if line.hasPrefix("[") {
                 flush(); section = .none // unknown table — ignore its keys
+            } else if section == .cleanup {
+                parseCleanup(line, into: &config.cleanup)
             } else if let (key, value) = parseKeyValue(line) {
                 switch section {
                 case .dictEntry:
@@ -72,7 +76,7 @@ public enum ConfigStore {
                     else if key == "to" { entry?.to = value }
                 case .style: config.style[key] = value
                 case .categories: config.categories[key] = value
-                case .none: break
+                case .none, .cleanup: break
                 }
             }
         }
@@ -107,6 +111,43 @@ public enum ConfigStore {
         chars = chars.dropFirst().drop { $0 == " " || $0 == "\t" }
         guard let value = scanString(&chars) else { return nil }
         return (key, value)
+    }
+
+    /// Parse one `[cleanup]` line. Tolerant: an unknown key or an unparseable
+    /// value for a known key is ignored (a hand-edit never bricks startup).
+    static func parseCleanup(_ line: String, into c: inout AppConfig.Cleanup) {
+        var chars = Substring(line)
+        guard let key = scanKey(&chars) else { return }
+        chars = chars.drop { $0 == " " || $0 == "\t" }
+        guard chars.first == "=" else { return }
+        chars = chars.dropFirst().drop { $0 == " " || $0 == "\t" }
+        let rhs = String(chars).trimmingCharacters(in: .whitespaces)
+        switch key {
+        case "collapse_stutters": if let b = scanBool(rhs) { c.collapseStutters = b }
+        case "fillers": if let arr = scanStringArray(rhs) { c.extraFillers = arr }
+        case "disable_fillers": if let arr = scanStringArray(rhs) { c.disabledFillers = arr }
+        case "verbatim_categories": if let arr = scanStringArray(rhs) { c.verbatimCategories = arr }
+        default: break // unknown / retired key (level lives in the menu) — ignore
+        }
+    }
+
+    private static func scanBool(_ rhs: String) -> Bool? {
+        switch rhs.lowercased() { case "true": return true; case "false": return false; default: return nil }
+    }
+
+    /// Parse a TOML array of strings `["a", "b"]`; nil if not a well-formed array.
+    private static func scanStringArray(_ rhs: String) -> [String]? {
+        guard rhs.first == "[", rhs.last == "]" else { return nil }
+        var body = Substring(rhs.dropFirst().dropLast())
+        var out: [String] = []
+        while true {
+            body = body.drop { $0 == " " || $0 == "\t" || $0 == "," }
+            guard let first = body.first else { break }
+            guard first == "\"" || first == "'" else { return nil } // only string elements
+            guard let s = scanString(&body) else { return nil }
+            out.append(s)
+        }
+        return out
     }
 
     private static func scanKey(_ s: inout Substring) -> String? {
@@ -174,7 +215,26 @@ public enum ConfigStore {
                 out += "\(quote(key)) = \(quote(config.categories[key]!))\n"
             }
         }
+        out += emitCleanup(config.cleanup)
         return out
+    }
+
+    /// Always emit the [cleanup] section so its knobs are discoverable. The
+    /// aggressiveness LEVEL is a menu control (Off / Fillers / Standard), not a
+    /// config key, so it is intentionally absent here.
+    private static func emitCleanup(_ c: AppConfig.Cleanup) -> String {
+        var out = "\n# Auto-Clean knobs. The on/off/aggressiveness level is the\n"
+        out += "# menu control (Auto-Clean: Off / Fillers only / Standard).\n"
+        out += "[cleanup]\n"
+        out += "collapse_stutters = \(c.collapseStutters)   # collapse \"I I I\" → \"I\"\n"
+        out += "fillers = \(emitStringArray(c.extraFillers))            # extra filler tokens to strip\n"
+        out += "disable_fillers = \(emitStringArray(c.disabledFillers))    # built-in tokens to KEEP\n"
+        out += "verbatim_categories = \(emitStringArray(c.verbatimCategories))   # apps where Auto-Clean is off\n"
+        return out
+    }
+
+    private static func emitStringArray(_ items: [String]) -> String {
+        "[" + items.map { quote($0) }.joined(separator: ", ") + "]"
     }
 
     /// A bare key if simple, else a quoted key.

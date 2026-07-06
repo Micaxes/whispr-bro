@@ -48,6 +48,9 @@ final class PipelineController: ObservableObject {
 
     @Published private(set) var state: State = .needsPermissions
     @Published private(set) var lastTranscript: String = ""
+    /// Verbatim (dictionary-only) form of the last dictation — for "undo AI edit
+    /// → paste raw" (task-014 §7c).
+    @Published private(set) var lastRawTranscript: String = ""
     @Published private(set) var lastTimings: String = ""
     @Published private(set) var permissions = PermissionSnapshot()
     /// True while the tap is confirmed dead (Input Monitoring likely revoked).
@@ -64,6 +67,11 @@ final class PipelineController: ObservableObject {
     private var config = AppConfig()
     private var dictionary = DictionaryEngine(rules: [])
     private var categoryOverrides: [String: AppCategory] = [:]
+    /// Auto-Clean (task-014): the deterministic filler pre-pass + the effective
+    /// cleanup settings, rebuilt from config. The live LEVEL is the menu control
+    /// (`cleanupLevel`); the other knobs come from config.toml.
+    private var fillerStripper = FillerStripper()
+    private var cleanupCfg = AppConfig.Cleanup()
     private let hud = HUDController()
     private let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "pipeline")
 
@@ -103,6 +111,17 @@ final class PipelineController: ObservableObject {
     /// stored transcript log (persisted across launches).
     @Published var historyEnabled = UserDefaults.standard.object(forKey: "historyEnabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(historyEnabled, forKey: "historyEnabled") }
+    }
+    /// Auto-Clean level — the menu tri-state control (task-014 §7c). Persisted in
+    /// UserDefaults and authoritative for the level (there is no config.toml
+    /// `level` key — that would fight the menu). The other cleanup knobs (filler
+    /// set, verbatim categories, stutter collapse) come from config.toml.
+    @Published var cleanupLevel: AppConfig.Cleanup.Level = {
+        if let raw = UserDefaults.standard.string(forKey: "cleanupLevel"),
+           let lvl = AppConfig.Cleanup.Level(rawValue: raw) { return lvl }
+        return .fillers
+    }() {
+        didSet { UserDefaults.standard.set(cleanupLevel.rawValue, forKey: "cleanupLevel") }
     }
 
     /// App category captured at key-press for the current dictation.
@@ -370,6 +389,22 @@ final class PipelineController: ObservableObject {
         }
     }
 
+    /// Re-insert the last dictation's VERBATIM (dictionary-only) text — "undo the
+    /// AI edit" (task-014 §7c). Weaker than a partial undo: it restores fillers
+    /// and drops LLM punctuation/capitalization, so the caller's UI copy must say
+    /// so. No-op if there's no prior dictation this session.
+    /// Offer undo only when idle AND the last dictation was actually edited
+    /// (cleaned/corrected differs from the verbatim) — no point re-pasting an
+    /// identical string (e.g. verbatim level, or an utterance with no fillers).
+    var canUndoToRaw: Bool {
+        state == .idle && !lastRawTranscript.isEmpty && lastTranscript != lastRawTranscript
+    }
+    func reinsertLastRaw() {
+        // Only when idle — never race a live insertion through the pasteboard.
+        guard canUndoToRaw else { return }
+        reinsertFromHistory(lastRawTranscript)
+    }
+
     /// Rebuild the dictionary, style overrides, and category map from `config`
     /// (spec §4 Config mirror; §11.5 live reload).
     private func applyConfig(_ config: AppConfig) {
@@ -391,6 +426,19 @@ final class PipelineController: ObservableObject {
                 log.warning("config [categories] maps to unknown category '\(pair.value, privacy: .public)' — ignored")
             }
         }
+        // Auto-Clean: rebuild the filler pre-pass from config. The aggressiveness
+        // LEVEL is the menu control (cleanupLevel), not a config key.
+        cleanupCfg = config.cleanup
+        fillerStripper = FillerStripper(
+            extra: config.cleanup.extraFillers,
+            disabled: config.cleanup.disabledFillers,
+            collapseStutters: config.cleanup.collapseStutters)
+    }
+
+    /// Whether the current register disables Auto-Clean entirely (verbatim).
+    /// Case-insensitive so a hand-edited "IDE" matches the "ide" rawValue.
+    private func isVerbatimRegister(_ category: AppCategory) -> Bool {
+        cleanupCfg.verbatimCategories.contains { $0.lowercased() == category.rawValue }
     }
 
     /// Strip chat control-token markup from a hand-edited directive so a config
@@ -404,10 +452,16 @@ final class PipelineController: ObservableObject {
     /// a "preserve these spellings" allowlist of the dictionary's canonical
     /// targets (capped), so the model doesn't re-spell an unfamiliar term. Both
     /// live in the KV-cached prefix and only re-prime when they change.
-    private func effectiveStyleDirective(dictionary dict: DictionaryEngine) -> String {
+    private func effectiveStyleDirective(dictionary dict: DictionaryEngine, resolveCorrections: Bool) -> String {
         var parts: [String] = []
         if contextAwareStyle {
             parts.append(styleRules.directive(for: capturedCategory))
+        }
+        // Self-correction clause (task-014 §6.2) — only at level=standard on a
+        // non-verbatim register. Lives in the KV-cached prefix, so it re-primes
+        // only when the register/level changes, not per dictation.
+        if resolveCorrections {
+            parts.append(PromptBuilder.correctionClause)
         }
         let targets = dict.canonicalTargets.prefix(30)
         if !targets.isEmpty {
@@ -631,36 +685,73 @@ final class PipelineController: ObservableObject {
         do {
             let audioForAsr = trim ? await vad.trim(samples) : samples
             let toTranscribe = audioForAsr.count >= asr.minimumSamples ? audioForAsr : samples
-            // Snapshot the dictionary/style so a menu reload mid-dictation
-            // can't make the substitution and the LLM allowlist disagree.
+            // Snapshot the dictionary/cleanup so a menu reload mid-dictation
+            // can't make the substitution, the LLM allowlist, and the filler
+            // pre-pass disagree.
             let dict = dictionary
+            let stripper = fillerStripper
+            let level = cleanupLevel
+            let verbatimRegister = isVerbatimRegister(capturedCategory)
             let (result, asrSeconds) = try await measured { try await asr.transcribe(toTranscribe) }
             timings.asrSeconds = asrSeconds
             // Personal dictionary ONCE, BEFORE formatting (so the LLM sees
             // corrected terms) and in raw mode alike (spec §4 DictionaryEngine).
             // Applied once, not before+after: a second pass would duplicate
             // words for an expanding rule (target contains its source).
-            let rawText = dict.apply(
+            // `verbatimText` is the TRUE verbatim form (dictionary only) — it is
+            // what history stores as rawText.
+            let verbatimText = dict.apply(
                 result.text.trimmingCharacters(in: .whitespacesAndNewlines))
-            guard !rawText.isEmpty else {
+            guard !verbatimText.isEmpty else {
                 state = .idle
                 hud.hide()
                 return
             }
 
-            // Stage 2: LLM auto-edit (or rule-based fast path / raw fallback).
-            // Formatter.format never throws — a dictation always lands. The LLM
-            // path preserves terms via the allowlist; the raw path preserves
-            // their casing via preserveCasingFor.
-            let raw = rawMode
-            let style = effectiveStyleDirective(dictionary: dict)
-            // Reload the model first if it was unloaded to save idle memory
-            // (~1–2s, only after a long idle gap and only when the LLM path is
-            // actually used — raw mode / fast path skip the reload).
-            if !raw { await ensureLLMLoaded() }
-            let (text, formatSeconds) = await measured {
-                await formatter.format(rawText, rawMode: raw, styleDirective: style,
-                                       preserveCasingFor: dict.lowercasedTargets)
+            // Auto-Clean level "Off (verbatim)" = the WHOLE stage is a no-op:
+            // no filler strip AND no LLM — paste the dictionary-corrected text
+            // exactly as spoken (spec §7a / AC #6). Verbatim registers
+            // (ide/terminal/notes) only skip the Auto-Clean strip+correction;
+            // they still run the LLM with their own verbatim-ish directive.
+            let stageOff = level == .verbatim
+
+            // Stage 1 (task-014 §5a): deterministic filler strip on ALL routes,
+            // unless the stage is off / verbatim register. Protects dictionary
+            // targets from a case-insensitive filler collision.
+            let stripFillers = !stageOff && !verbatimRegister
+            let stripped = stripFillers
+                ? stripper.strip(verbatimText, protecting: dict.lowercasedTargets)
+                : verbatimText
+            // Never emit empty: an all-filler utterance ("um", or "um, uh." which
+            // strips to bare punctuation) falls back to the verbatim text so a
+            // dictation always lands (spec §3.2 #17). "Meaningful" = has a letter
+            // or digit, so a punctuation-only residue also triggers the fallback.
+            let hasContent = stripped.contains { $0.isLetter || $0.isNumber }
+            let cleanedInput = hasContent ? stripped : verbatimText
+
+            let text: String
+            let formatSeconds: Double
+            if stageOff {
+                // Byte-identical to the dictionary-corrected text — proven no-op.
+                text = verbatimText
+                formatSeconds = 0
+            } else {
+                // Stage 2: LLM auto-edit (or rule-based fast path / raw fallback).
+                // Formatter.format never throws — a dictation always lands.
+                let raw = rawMode
+                // Self-correction: level=standard on a non-verbatim register. The
+                // LLM path handles it; format() also uses this to keep a short
+                // correction off the fast path (§5c).
+                let resolveCorr = level == .standard && !verbatimRegister
+                let style = effectiveStyleDirective(dictionary: dict, resolveCorrections: resolveCorr)
+                // Reload the model first if it was unloaded to save idle memory
+                // (~1–2s, only after a long idle gap, only on the LLM path).
+                if !raw { await ensureLLMLoaded() }
+                (text, formatSeconds) = await measured {
+                    await formatter.format(cleanedInput, rawMode: raw, styleDirective: style,
+                                           preserveCasingFor: dict.lowercasedTargets,
+                                           resolveCorrections: resolveCorr)
+                }
             }
             timings.formatSeconds = formatSeconds
 
@@ -677,13 +768,14 @@ final class PipelineController: ObservableObject {
             hud.update(.inserting)
             let insertClock = ContinuousClock()
             let insertStart = insertClock.now
-            let historyRaw = rawText
+            let historyRaw = verbatimText   // history "raw" = what was said (dictionary-only)
             let historyBundleId = capturedBundleId
             let historyAppName = capturedAppName
             inserter.insert(text) { [weak self] in
                 guard let self else { return }
                 timings.insertSeconds = (insertClock.now - insertStart).seconds
                 self.lastTranscript = text
+                self.lastRawTranscript = historyRaw   // for "undo AI edit → raw"
                 self.lastTimings = timings.description
                 self.log.info("dictation (\(wasLocked ? "locked" : "hold")): \"\(text, privacy: .private)\" [\(timings.description)]")
                 self.state = .idle

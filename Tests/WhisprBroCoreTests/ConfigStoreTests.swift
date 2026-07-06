@@ -37,6 +37,47 @@ final class ConfigStoreTests: XCTestCase {
         XCTAssertEqual(reparsed, c)
     }
 
+    func testCleanupRoundTrips() {
+        var c = AppConfig()
+        c.cleanup.collapseStutters = false
+        c.cleanup.extraFillers = ["ah", "oh"]
+        c.cleanup.disabledFillers = ["er"]
+        c.cleanup.verbatimCategories = ["ide"]
+        XCTAssertEqual(ConfigStore.parse(ConfigStore.emit(c)), c)
+    }
+
+    func testCleanupParsesValues() {
+        let toml = """
+        [cleanup]
+        collapse_stutters = false
+        fillers = ["like", "you know"]
+        verbatim_categories = ["terminal"]
+        """
+        let c = ConfigStore.parse(toml)
+        XCTAssertFalse(c.cleanup.collapseStutters)
+        XCTAssertEqual(c.cleanup.extraFillers, ["like", "you know"])
+        XCTAssertEqual(c.cleanup.verbatimCategories, ["terminal"])
+        XCTAssertTrue(c.cleanup.disabledFillers.isEmpty) // untouched → default
+    }
+
+    func testCleanupTolerantOfGarbage() {
+        // Unknown/retired key + malformed values must not brick the section.
+        let toml = """
+        [cleanup]
+        level = "bogus_level"
+        enabled = maybe
+        nonsense = true
+        fillers = not_an_array
+        """
+        let c = ConfigStore.parse(toml)
+        XCTAssertEqual(c.cleanup, AppConfig.Cleanup()) // all defaults preserved
+    }
+
+    func testCleanupEmptyArrayClearsVerbatimCategories() {
+        let c = ConfigStore.parse("[cleanup]\nverbatim_categories = []")
+        XCTAssertEqual(c.cleanup.verbatimCategories, [])
+    }
+
     func testValueWithSpecialCharsRoundTrips() {
         var c = AppConfig()
         // Values containing quotes, backslashes, '#', '=' must survive.
