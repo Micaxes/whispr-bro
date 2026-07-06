@@ -55,3 +55,32 @@ On already-clean input Qwen2.5 leaves the text alone (no rephrasing), and it
 fixes genuine STT errors (`per cent` → `percent`) — exactly the intended
 auto-edit behavior. Every case lands under the **700ms p99** target, the
 2-sentence worst case included.
+## Task-014 Auto-Clean — on-device findings
+
+**Premise check (spec §1.3): Parakeet emits fillers verbatim.** `say`-synthesized
+dictation "um so I was uh thinking … meet at 2 uh actually 3 … um yeah"
+transcribes as `"Um, so I was uh thinking … meet at 2, uh, actually 3 p.m. Um,
+yeah."` — the fillers survive ASR. So the deterministic `FillerStripper` (Phase 1)
+has real work; the "kill-the-ums" win is not already done by the ASR.
+
+**Filler strip** is deterministic and ~0ms; it runs on every route (LLM path and
+raw/fast-path). Latency harness unchanged (p99 ≈ 480ms).
+
+**Self-correction (level `standard`) is best-effort on the frozen Qwen2.5-1.5B —
+this is why it is opt-in, not the GA default.** Measured with `whispr-bench cleanup`:
+
+| input | output | verdict |
+|---|---|---|
+| `let's meet at 2 actually 3` | `Let's meet at 3.` | ✅ resolved |
+| `send it monday no wait tuesday` | `Send it Tuesday.` | ✅ resolved |
+| `I actually enjoyed the movie` | `I actually enjoyed the movie.` | ✅ preserved (cue is content) |
+| `so I was thinking we should meet at 2 actually 3 pm` | echoed unchanged | ⚠️ not resolved (long span) |
+| `the total is 50 no sorry 15 dollars` | echoed unchanged | ⚠️ not resolved (number span) |
+
+The model resolves short, example-like corrections and correctly leaves
+non-corrections alone, but **does not generalize to longer or number-heavy
+corrections** — it safely under-edits (echoes) rather than mangling (bias-to-keep).
+The **inline few-shot examples are load-bearing**: without them the model neither
+corrects nor reliably punctuates; with them, clean no-correction inputs are
+preserved byte-for-byte-modulo-punctuation (no over-edit regression). A stronger
+correction tier would need a small fine-tune (spec §12 Phase 3), deferred.

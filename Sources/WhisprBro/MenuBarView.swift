@@ -54,6 +54,17 @@ struct MenuBarView: View {
         }
 
         Divider()
+        Picker("Auto-Clean", selection: Binding(
+            get: { pipeline.cleanupLevel },
+            set: { pipeline.cleanupLevel = $0 }
+        )) {
+            ForEach(AppConfig.Cleanup.Level.allCases, id: \.self) { level in
+                Text(level.displayName).tag(level)
+            }
+        }
+        if pipeline.canUndoToRaw {
+            Button("Undo last Auto-Clean (paste raw)") { pipeline.reinsertLastRaw() }
+        }
         if pipeline.llmAvailable {
             Toggle("Raw mode (skip AI cleanup)", isOn: Binding(
                 get: { pipeline.rawMode },

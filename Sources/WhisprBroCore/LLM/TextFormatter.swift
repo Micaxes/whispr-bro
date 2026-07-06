@@ -49,15 +49,22 @@ public actor TextFormatter {
     /// Format `raw` (already dictionary-corrected). Never throws: any engine
     /// failure, timeout, or raw/fast-path degrades to the rule-based result so
     /// a dictation always lands.
+    /// - Parameter resolveCorrections: when true, a short utterance that carries
+    ///   a self-correction cue (spec §5c) is NOT shortcut to the fast path — it
+    ///   goes to the LLM so the correction can be resolved. Only set by the
+    ///   pipeline at `level = standard` on a non-verbatim register.
     public func format(
         _ raw: String, rawMode: Bool, styleDirective: String = "",
-        preserveCasingFor: Set<String> = []
+        preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false
     ) async -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
 
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
-        if rawMode || wordCount < config.fastPathWordLimit {
+        // A short utterance skips the LLM — unless it likely holds a correction
+        // to resolve (cue + plausible replacement), which the fast path can't do.
+        let cueBypass = resolveCorrections && CorrectionCues.plausibleCorrection(in: trimmed)
+        if rawMode || (wordCount < config.fastPathWordLimit && !cueBypass) {
             return Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor)
         }
         guard await engine.isLoaded else {
@@ -99,6 +106,10 @@ public actor TextFormatter {
         if first.isLowercase, !isDictionaryTerm, !leadingTokenHasInternalUppercase(s) {
             s.replaceSubrange(s.startIndex...s.startIndex, with: String(first).uppercased())
         }
+        // NB: this deliberately capitalizes only the FIRST sentence. Capitalizing
+        // after every ". " would over-capitalize abbreviations ("e.g. foo",
+        // "U.S. government"); a lowercase word after a mid-utterance period on the
+        // no-LLM fast path is an accepted minor artifact (the LLM path fixes it).
         if let last = s.last, !".!?".contains(last) {
             s.append(".")
         }

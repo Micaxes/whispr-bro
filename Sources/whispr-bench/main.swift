@@ -35,6 +35,8 @@ struct WhisprBench {
             await runStyle(transcript: args[1])
         case "dict" where args.count >= 2:
             await runDict(transcript: args[1])
+        case "cleanup" where args.count >= 2:
+            await runCleanup(transcript: args[1])
         case "history":
             await runHistory()
         case "verify":
@@ -53,6 +55,7 @@ struct WhisprBench {
                                                       #   (default 20 runs, 700ms p99 budget) — exits non-zero if over
               whispr-bench style "<text>"             # format one sentence under every per-app style (default model)
               whispr-bench dict "<text>"              # full dictionary→LLM→dictionary flow (uses config.toml)
+              whispr-bench cleanup "<text>"           # Auto-Clean: filler strip → LLM self-correction (standard)
               whispr-bench history                    # FTS5 acceptance: 1k rows, search latency
               whispr-bench verify                     # ModelManager: on-disk sha256 verify of every model set
 
@@ -116,6 +119,31 @@ struct WhisprBench {
                          avg * 1000, best * 1000, worst * 1000, latencies.count))
         }
         // Free GPU buffers before exit or ggml-metal asserts at teardown.
+        await engine.unload()
+    }
+
+    /// Full Auto-Clean flow (task-014): deterministic filler strip → LLM format
+    /// with the self-correction clause (level=standard). Prints each stage so
+    /// filler removal and self-correction resolution can be inspected on-device.
+    static func runCleanup(transcript: String) async {
+        let spec = LlmCatalog.default
+        guard spec.isInstalled else {
+            print("default model not installed; run scripts/fetch-llm-models.sh"); exit(1)
+        }
+        let engine = LlamaCppEngine(modelPath: spec.fileURL, promptBuilder: PromptBuilder(family: spec.family))
+        let formatter = TextFormatter(engine: engine)
+        do { try await formatter.load() } catch {
+            print("error: \(error.localizedDescription)"); exit(1)
+        }
+        let stripped = FillerStripper().strip(transcript)
+        // Non-verbatim register directive + the self-correction clause (standard).
+        let directive = StyleRules().directive(for: .unknown) + "\n\n" + PromptBuilder.correctionClause
+        let (out, seconds) = await measured {
+            await formatter.format(stripped, rawMode: false, styleDirective: directive, resolveCorrections: true)
+        }
+        print("input:    \(transcript)")
+        print("stripped: \(stripped)")
+        print(String(format: "cleaned:  %@   (%.0fms)", out as NSString, seconds * 1000))
         await engine.unload()
     }
 

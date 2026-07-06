@@ -63,4 +63,9 @@ final class TextFormatterTests: XCTestCase {
         XCTAssertEqual(TextFormatter.ruleBasedCleanup(""), "")
         XCTAssertEqual(TextFormatter.ruleBasedCleanup("   "), "")
     }
+
+    func testRuleBasedDoesNotOverCapitalizeAbbreviations() {
+        // Only the first sentence is capitalized — abbreviations keep their case.
+        XCTAssertEqual(TextFormatter.ruleBasedCleanup("see e.g. foo and bar"), "See e.g. foo and bar.")
+    }
 }

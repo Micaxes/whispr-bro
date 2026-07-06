@@ -16,10 +16,11 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             modelsTab.tabItem { Label("Models", systemImage: "shippingbox") }
+            autoCleanTab.tabItem { Label("Auto-Clean", systemImage: "wand.and.sparkles") }
             performanceTab.tabItem { Label("Performance", systemImage: "gauge") }
             privacyTab.tabItem { Label("Privacy", systemImage: "lock.shield") }
         }
-        .frame(width: 520, height: 440)
+        .frame(width: 520, height: 460)
         .task { await models.refresh() }
     }
 
@@ -77,6 +78,50 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    // MARK: Auto-Clean
+
+    private var autoCleanTab: some View {
+        Form {
+            Section("Auto-Clean") {
+                Picker("Level", selection: $pipeline.cleanupLevel) {
+                    ForEach(AppConfig.Cleanup.Level.allCases, id: \.self) { level in
+                        Text(level.displayName).tag(level)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Text(cleanupLevelNote).font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Text("“Standard” resolves self-corrections: when you misspeak and restate — “meet at 2, actually 3” — only the corrected version “meet at 3” is kept. If unsure, it keeps both. It never changes facts, numbers, or names.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } header: {
+                Text("How corrections work")
+            } footer: {
+                Text("In code editors, terminals, and notes, Auto-Clean's filler removal and self-correction are skipped (your normal per-app formatting still applies). The filler set and these verbatim apps are editable in config.toml (menu → Edit dictionary & config…).")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Undo") {
+                Label("An edit removed words? Menu → “Undo last Auto-Clean (paste raw)” re-inserts exactly what you said.", systemImage: "arrow.uturn.backward")
+                    .font(.caption)
+                Text("Note: raw is your verbatim words — it also restores fillers and drops added punctuation/capitalization. A single-deletion undo is a future feature.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Atypical speech") {
+                Text("If you stutter, are dictating in a second language, or want your repetitions kept, set Level to “Off (verbatim)” — nothing is removed. Defaults stay conservative.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var cleanupLevelNote: String {
+        switch pipeline.cleanupLevel {
+        case .verbatim: "Nothing is removed — you get exactly what you said (with your dictionary applied)."
+        case .fillers: "Removes filler words (um, uh, er) only. No wording is changed. Safe default."
+        case .standard: "Removes fillers AND resolves self-corrections (opt-in). Uses the on-device model."
+        }
     }
 
     // MARK: Performance
