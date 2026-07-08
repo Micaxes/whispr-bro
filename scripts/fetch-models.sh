@@ -94,6 +94,42 @@ fetch_and_verify \
 
 echo
 
+# ASR (multilingual, OPT-IN) — Parakeet-tdt-0.6b-v3 CoreML (~465MB). Serves the
+# non-English dictation languages (Italian, Spanish, + 23 more European langs;
+# auto-detecting). English stays on v2 above and does NOT need this. Enable with:
+#   scripts/fetch-models.sh multilang
+# int8 encoder + JointDecisionv3 are the v3 defaults (dir basename MUST be
+# parakeet-tdt-0.6b-v3).
+if [[ "${1:-}" == "multilang" || "${1:-}" == "all" ]]; then
+  fetch_and_verify \
+    "FluidInference/parakeet-tdt-0.6b-v3-coreml" \
+    "aed02740059203c4a87495924f685de3722ae9ce" \
+    "$MODELS/parakeet-tdt-0.6b-v3" \
+    "$SCRIPT_DIR/models-v3.sha256" \
+    Preprocessor.mlmodelc/analytics/coremldata.bin \
+    Preprocessor.mlmodelc/coremldata.bin \
+    Preprocessor.mlmodelc/metadata.json \
+    Preprocessor.mlmodelc/model.mil \
+    Preprocessor.mlmodelc/weights/weight.bin \
+    Encoder.mlmodelc/analytics/coremldata.bin \
+    Encoder.mlmodelc/coremldata.bin \
+    Encoder.mlmodelc/metadata.json \
+    Encoder.mlmodelc/model.mil \
+    Encoder.mlmodelc/weights/weight.bin \
+    Decoder.mlmodelc/analytics/coremldata.bin \
+    Decoder.mlmodelc/coremldata.bin \
+    Decoder.mlmodelc/metadata.json \
+    Decoder.mlmodelc/model.mil \
+    Decoder.mlmodelc/weights/weight.bin \
+    JointDecisionv3.mlmodelc/analytics/coremldata.bin \
+    JointDecisionv3.mlmodelc/coremldata.bin \
+    JointDecisionv3.mlmodelc/metadata.json \
+    JointDecisionv3.mlmodelc/model.mil \
+    JointDecisionv3.mlmodelc/weights/weight.bin \
+    parakeet_vocab.json
+  echo
+fi
+
 # VAD — Silero unified 256ms v6 (dir basename MUST be silero-vad)
 fetch_and_verify \
   "FluidInference/silero-vad-coreml" \

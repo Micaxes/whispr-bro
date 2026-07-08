@@ -2,15 +2,30 @@ import Accelerate
 import AVFoundation
 import Foundation
 
-/// Always-running microphone capture producing 16kHz mono Float32 into a
-/// `PreRollBuffer` (spec §4). The engine runs continuously so the 500ms
-/// pre-roll is warm before the hotkey is ever pressed.
+/// On-demand microphone capture producing 16kHz mono Float32 into a
+/// `PreRollBuffer` (spec §4).
+///
+/// The engine is **prepared** once (graph built, tap installed, resources
+/// preallocated) but the input IOProc is started only while a dictation is
+/// actually in progress, so the macOS microphone indicator is lit **only while
+/// dictating** — matching Wispr Flow / VoiceInk's "prepare-ahead, start-late"
+/// pattern. `prepare()` does not run the input IOProc, so it does not light the
+/// orange dot; only `startCapture()` (`engine.start()`) does. On Apple Silicon
+/// the built-in mic goes live within ~100ms of `start()`, which human reaction
+/// time (~200–500ms before the first phoneme) hides — so on-demand start does
+/// not clip the first word. (Bluetooth mics negotiate SCO/HFP for 1–3s and are
+/// the one case where a warm stream would help; not handled here.)
 public final class AudioEngine: @unchecked Sendable {
     public static let targetSampleRate: Double = 16_000
 
     private let engine = AVAudioEngine()
     private let buffer: PreRollBuffer
     private var converter: AVAudioConverter?
+    /// The hardware input format the current tap/converter were built for. Used
+    /// to detect a device/route change and rebuild before the next capture (a
+    /// stale tap format asserts inside `engine.start()`).
+    private var preparedFormat: AVAudioFormat?
+    private var capturing = false
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
         sampleRate: AudioEngine.targetSampleRate,
@@ -28,29 +43,69 @@ public final class AudioEngine: @unchecked Sendable {
         )
     }
 
-    public func start() throws {
-        guard converter == nil else { return } // already running
-        let input = engine.inputNode
-        let inputFormat = input.outputFormat(forBus: 0)
+    // MARK: - Lifecycle
+
+    /// Build the capture graph (converter + tap) and preallocate resources
+    /// WITHOUT starting the input IOProc. Idempotent. Does NOT light the mic
+    /// indicator — call this at bring-up so `startCapture()` is a fast, warm
+    /// start later. Rebuilds automatically if the hardware input format changed.
+    public func prepare() throws {
+        let inputFormat = engine.inputNode.outputFormat(forBus: 0)
+        if converter != nil, let prepared = preparedFormat, prepared == inputFormat {
+            return // already prepared for this device
+        }
+        // Rebuild for a fresh/changed device.
+        if converter != nil { engine.inputNode.removeTap(onBus: 0) }
         guard inputFormat.sampleRate > 0,
               let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
         else {
             throw WhisprError.audioConverterUnavailable
         }
         self.converter = converter
+        self.preparedFormat = inputFormat
 
-        input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] pcmBuffer, _ in
+        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] pcmBuffer, _ in
             self?.process(pcmBuffer)
         }
         engine.prepare()
-        try engine.start()
     }
 
+    /// Start the input IOProc — this lights the mic indicator. Fast because
+    /// `prepare()` already did the expensive setup. Safe to call repeatedly;
+    /// re-prepares first if the input device/format changed.
+    public func startCapture() throws {
+        guard !capturing else { return }
+        try prepare()
+        try engine.start()
+        capturing = true
+    }
+
+    /// Stop the input IOProc — this clears the mic indicator (sub-second on a
+    /// clean stop). Keeps the tap and converter installed so the next
+    /// `startCapture()` is a warm, fast start.
+    public func stopCapture() {
+        guard capturing else { return }
+        engine.stop()
+        capturing = false
+    }
+
+    /// Full teardown: stop capture and release the tap/converter. Used by the
+    /// bench harness and any hard reset. `prepare()` will rebuild on next use.
     public func stop() {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         converter = nil
+        preparedFormat = nil
+        capturing = false
     }
+
+    /// Prepare + start in one call (bench harness convenience / back-compat).
+    public func start() throws {
+        try prepare()
+        try startCapture()
+    }
+
+    // MARK: - Utterance
 
     public func beginUtterance() {
         buffer.beginUtterance()

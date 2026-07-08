@@ -12,6 +12,9 @@ struct SettingsView: View {
     // plain UserDefaults static would not re-render the picker or its note).
     // Same "asrEngineKind" key AsrEngineKind.selected reads, so they stay in sync.
     @AppStorage("asrEngineKind") private var asrKindRaw = AsrEngineKind.parakeet.rawValue
+    // Active dictation language (English default). Same "dictationLanguage" key
+    // DictationLanguage.selected reads, so the picker and pipeline stay in sync.
+    @AppStorage(DictationLanguage.storageKey) private var languageRaw = DictationLanguage.english.rawValue
 
     var body: some View {
         TabView {
@@ -38,6 +41,16 @@ struct SettingsView: View {
                 .pickerStyle(.radioGroup)
                 Text("Qwen2.5 1.5B is the measured default. Qwen3 1.7B is a higher-quality preset (slower — best on Pro/Max). Only installed models can be selected.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section("Dictation language") {
+                Picker("Language", selection: languageBinding) {
+                    ForEach(DictationLanguage.allCases, id: \.self) { lang in
+                        Text(lang.displayName).tag(lang)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Text(languageNote).font(.caption).foregroundStyle(.secondary)
             }
 
             Section("Speech-recognition engine") {
@@ -168,6 +181,18 @@ struct SettingsView: View {
         Binding(
             get: { AsrEngineKind(rawValue: asrKindRaw) ?? .parakeet },
             set: { asrKindRaw = $0.rawValue })   // @AppStorage write → view re-renders
+    }
+
+    private var languageBinding: Binding<DictationLanguage> {
+        Binding(
+            get: { DictationLanguage(rawValue: languageRaw) ?? .english },
+            set: { languageRaw = $0.rawValue })
+    }
+
+    private var languageNote: String {
+        (DictationLanguage(rawValue: languageRaw) ?? .english) == .english
+            ? "English uses the fast Parakeet v2 model. Language changes apply on next launch."
+            : "Italian & Spanish use the multilingual Parakeet v3 model — install it with scripts/fetch-models.sh if you haven't. Applies on next launch."
     }
 
     private func label(for spec: LlmModelSpec) -> String {

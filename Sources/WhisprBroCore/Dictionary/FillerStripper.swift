@@ -20,6 +20,21 @@ public struct FillerStripper: Sendable {
     /// discourse markers that carry meaning, so never in the default set.
     public static let extendedFillers = ["ah", "eh", "oh", "mm"]
 
+    /// The narrow default filled-pause set per language. Kept deliberately small
+    /// and unambiguous (no discourse markers that are also real words, e.g. no
+    /// Spanish "este") so a filler strip never eats meaning; the LLM handles the
+    /// ambiguous rest. It/Es are space-delimited like English, so the existing
+    /// boundary regex works unchanged.
+    public static func coreFillers(for language: DictationLanguage) -> [String] {
+        switch language {
+        case .english: return coreFillers
+        case .italian: return ["ehm", "eh", "ehmm", "mmh"]
+        // "este"/"esto" are common Spanish muletillas but also real demonstratives
+        // ("este libro") — too risky to strip deterministically, so left to the LLM.
+        case .spanish: return ["eh", "em", "ehm"]
+        }
+    }
+
     /// Function words safe to de-stutter. Content words (`very`, `no`, `black`)
     /// are excluded so emphasis/rhetorical repeats and lists survive (spec §2c),
     /// AND words that legitimately double are excluded: `is` ("what it is is a
@@ -46,16 +61,23 @@ public struct FillerStripper: Sendable {
     public var isEmpty: Bool { regex == nil }
 
     /// - Parameters:
+    ///   - core: the base filled-pause set (defaults to the English set; pass a
+    ///     per-language set via `FillerStripper.coreFillers(for:)`).
     ///   - extra: tokens appended to the core set (e.g. the opt-in extended set).
     ///   - disabled: tokens removed from the core set (a name/brand collision).
-    ///   - collapseStutters: collapse function-word runs (`I I I` → `I`).
-    public init(extra: [String] = [], disabled: [String] = [], collapseStutters: Bool = true) {
+    ///   - collapseStutters: collapse function-word runs (`I I I` → `I`). Only
+    ///     English function words collapse (the set is English), so this is a safe
+    ///     no-op for other languages until per-language sets are added.
+    public init(
+        core: [String] = FillerStripper.coreFillers,
+        extra: [String] = [], disabled: [String] = [], collapseStutters: Bool = true
+    ) {
         self.collapseStutters = collapseStutters
 
         let disabledSet = Set(disabled.map { $0.lowercased() })
         var tokens: [String] = []
         var seen = Set<String>()
-        for t in (Self.coreFillers + extra) {
+        for t in (core + extra) {
             let norm = t.trimmingCharacters(in: .whitespaces).lowercased()
             guard !norm.isEmpty, !disabledSet.contains(norm), !seen.contains(norm) else { continue }
             seen.insert(norm); tokens.append(norm)

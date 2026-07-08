@@ -23,18 +23,37 @@ public enum CorrectionCues {
         "scratch that", "no wait", "i mean", "or rather",
     ]
 
+    /// Prompt cue phrases per language (the LLM correction clause names these).
+    public static func promptPhrases(for language: DictationLanguage) -> [String] {
+        switch language {
+        case .english: return promptPhrases
+        case .italian: return ["anzi", "cioè no", "volevo dire", "no aspetta", "meglio", "scusa"]
+        case .spanish: return ["o sea", "quiero decir", "mejor dicho", "digo", "perdón", "no espera"]
+        }
+    }
+
+    /// Strong, unambiguous mid-utterance cues per language, used by the
+    /// deterministic fast-path bypass. A subset of `promptPhrases(for:)`.
+    public static func bypassPhrases(for language: DictationLanguage) -> [String] {
+        switch language {
+        case .english: return bypassPhrases
+        case .italian: return ["no aspetta", "volevo dire", "anzi"]
+        case .spanish: return ["mejor dicho", "quiero decir", "no espera"]
+        }
+    }
+
     /// Fast-path bypass heuristic (spec §5c): true only when a bypass cue phrase
     /// appears **not** at the very start of the utterance **and** is followed by
     /// at least one more word — a cue *plus a plausible replacement*, not a lone
     /// cue or a sentence-opener. Every occurrence is checked (a leading opener
     /// must not mask a later real correction). Conservative: a false negative
     /// just leaves a short correction on the fast path, the safe failure.
-    public static func plausibleCorrection(in text: String) -> Bool {
+    public static func plausibleCorrection(in text: String, language: DictationLanguage = .english) -> Bool {
         // Commas → spaces, then collapse runs, so a comma-split cue ("no, wait")
         // still matches the single-space-bounded phrase.
         var lower = " " + text.lowercased().replacingOccurrences(of: ",", with: " ") + " "
         lower = lower.replacingOccurrences(of: #"[ \t]{2,}"#, with: " ", options: .regularExpression)
-        for phrase in bypassPhrases {
+        for phrase in bypassPhrases(for: language) {
             let needle = " " + phrase + " "
             var searchStart = lower.startIndex
             while let r = lower.range(of: needle, range: searchStart..<lower.endIndex) {

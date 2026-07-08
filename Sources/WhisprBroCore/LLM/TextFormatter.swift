@@ -55,7 +55,8 @@ public actor TextFormatter {
     ///   pipeline at `level = standard` on a non-verbatim register.
     public func format(
         _ raw: String, rawMode: Bool, styleDirective: String = "",
-        preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false
+        preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false,
+        language: DictationLanguage = .english
     ) async -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return trimmed }
@@ -63,7 +64,8 @@ public actor TextFormatter {
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
         // A short utterance skips the LLM — unless it likely holds a correction
         // to resolve (cue + plausible replacement), which the fast path can't do.
-        let cueBypass = resolveCorrections && CorrectionCues.plausibleCorrection(in: trimmed)
+        let cueBypass = resolveCorrections
+            && CorrectionCues.plausibleCorrection(in: trimmed, language: language)
         if rawMode || (wordCount < config.fastPathWordLimit && !cueBypass) {
             return Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor)
         }

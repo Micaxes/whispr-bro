@@ -59,9 +59,13 @@ final class PipelineController: ObservableObject {
     private let audio = AudioEngine()
     private let hotkey = HotkeyManager()
     private let inserter = TextInserter()
-    // Chosen at launch from the persisted engine kind (spec §11.7 fallback
-    // slot). Parakeet unless whisper.cpp is both selected and installed.
-    private let asr: AsrEngine = AsrEngineKind.makeSelectedEngine()
+    /// Selected dictation language (English default). Chosen at launch; changing
+    /// it requires relaunch (the ASR engine, like the model, is built once).
+    private let dictationLanguage = DictationLanguage.selected
+    // ASR engine for the selected language: English → Parakeet v2 (fast,
+    // English-only); Italian/Spanish → Parakeet v3 (multilingual, auto-detecting).
+    private let asr: AsrEngine = ParakeetEngine(
+        modelsDir: Paths.modelsDir, version: DictationLanguage.selected.parakeetVersion)
     private let vad = VadGate(modelFile: Paths.vadModelFile)
     private var styleRules = StyleRules()
     private var config = AppConfig()
@@ -150,7 +154,9 @@ final class PipelineController: ObservableObject {
         idleUnloadMinutes = UserDefaults.standard.object(forKey: "idleUnloadMinutes") as? Int ?? 5
         let engine = LlamaCppEngine(
             modelPath: spec.fileURL,
-            promptBuilder: PromptBuilder(family: spec.family)
+            promptBuilder: PromptBuilder(
+                family: spec.family,
+                systemPrompt: PromptBuilder.systemPrompt(for: DictationLanguage.selected))
         )
         self.engine = engine
         formatter = TextFormatter(engine: engine)
@@ -203,7 +209,10 @@ final class PipelineController: ObservableObject {
         idleUnloadTimer?.invalidate(); idleUnloadTimer = nil
         await engine.unload()   // free the outgoing engine's GPU/C resources first
         let newEngine = LlamaCppEngine(
-            modelPath: spec.fileURL, promptBuilder: PromptBuilder(family: spec.family))
+            modelPath: spec.fileURL,
+            promptBuilder: PromptBuilder(
+                family: spec.family,
+                systemPrompt: PromptBuilder.systemPrompt(for: dictationLanguage)))
         engine = newEngine
         formatter = TextFormatter(engine: newEngine)
         llmUnloadedForIdle = false
@@ -304,7 +313,8 @@ final class PipelineController: ObservableObject {
         permissionPollTimer?.invalidate()
         permissionPollTimer = nil
 
-        let modelDir = Paths.modelsDir.appendingPathComponent(ParakeetEngine.modelFolderName)
+        let modelDir = Paths.modelsDir.appendingPathComponent(
+            ParakeetEngine.folderName(for: dictationLanguage.parakeetVersion))
         guard FileManager.default.fileExists(atPath: modelDir.path) else {
             state = .modelsMissing
             return
@@ -338,12 +348,15 @@ final class PipelineController: ObservableObject {
                 log.info("LLM model not installed; raw cleanup only")
             }
             if !pipelineRunning {
-                try audio.start()
+                // Prepare the capture graph WITHOUT opening the mic: the input
+                // IOProc (and the macOS mic indicator) starts only while a
+                // dictation is in progress (see AudioEngine "prepare-ahead").
+                try audio.prepare()
                 try hotkey.start()
                 pipelineRunning = true
             }
             state = .idle
-            log.info("pipeline up: hotkey armed, audio running, models loaded (vad: \(self.vadAvailable))")
+            log.info("pipeline up: hotkey armed, audio prepared (mic opens on dictation), models loaded (vad: \(self.vadAvailable))")
         } catch WhisprError.modelsNotFound {
             state = .modelsMissing
         } catch {
@@ -430,6 +443,7 @@ final class PipelineController: ObservableObject {
         // LEVEL is the menu control (cleanupLevel), not a config key.
         cleanupCfg = config.cleanup
         fillerStripper = FillerStripper(
+            core: FillerStripper.coreFillers(for: dictationLanguage),
             extra: config.cleanup.extraFillers,
             disabled: config.cleanup.disabledFillers,
             collapseStutters: config.cleanup.collapseStutters)
@@ -461,7 +475,7 @@ final class PipelineController: ObservableObject {
         // non-verbatim register. Lives in the KV-cached prefix, so it re-primes
         // only when the register/level changes, not per dictation.
         if resolveCorrections {
-            parts.append(PromptBuilder.correctionClause)
+            parts.append(PromptBuilder.correctionClause(for: dictationLanguage))
         }
         let targets = dict.canonicalTargets.prefix(30)
         if !targets.isEmpty {
@@ -566,6 +580,17 @@ final class PipelineController: ObservableObject {
 
         isLocked = false
         recordingStartUptime = ProcessInfo.processInfo.systemUptime
+        // Open the mic NOW — this lights the macOS mic indicator (on-demand, so
+        // it's lit only while dictating). Fast because AudioEngine was prepared
+        // at bring-up; the ~100ms until the built-in mic is live is hidden by
+        // reaction time before the first word.
+        do {
+            try audio.startCapture()
+        } catch {
+            log.error("mic startCapture failed: \(error.localizedDescription)")
+            refuse("Microphone unavailable")
+            return
+        }
         state = .recording
         audio.beginUtterance()
         hud.show(.recording)
@@ -634,6 +659,7 @@ final class PipelineController: ObservableObject {
         stopTimers()
         isLocked = false
         _ = audio.endUtterance()
+        audio.stopCapture()   // close the mic → clears the macOS mic indicator
         state = .idle
         hud.hide()
     }
@@ -665,6 +691,9 @@ final class PipelineController: ObservableObject {
         var timings = StageTimings()
         let (samples, finalizeSeconds) = measuredSync { audio.endUtterance() }
         timings.audioFinalizeSeconds = finalizeSeconds
+        // Utterance audio is now in hand — close the mic so the macOS mic
+        // indicator clears immediately at end-of-speech, while ASR/LLM run.
+        audio.stopCapture()
 
         // Floor guard (defense in depth; the duration gate is the real filter).
         guard samples.count >= asr.minimumSamples else {
@@ -750,7 +779,8 @@ final class PipelineController: ObservableObject {
                 (text, formatSeconds) = await measured {
                     await formatter.format(cleanedInput, rawMode: raw, styleDirective: style,
                                            preserveCasingFor: dict.lowercasedTargets,
-                                           resolveCorrections: resolveCorr)
+                                           resolveCorrections: resolveCorr,
+                                           language: dictationLanguage)
                 }
             }
             timings.formatSeconds = formatSeconds
