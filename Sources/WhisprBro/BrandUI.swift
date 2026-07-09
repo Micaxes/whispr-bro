@@ -26,13 +26,13 @@ struct BrandTitleBar: View {
     let title: String
     var body: some View {
         ZStack {
-            HStack(spacing: 8) {
-                EchoWMark(color: Brand.ink).frame(width: 22, height: 15)
-                Text(title).font(Brand.sans(13, .semibold)).foregroundStyle(Brand.ink)
+            HStack(spacing: 11) {
+                EchoWMark(color: Brand.ink).frame(width: 34, height: 22)
+                Text(title).font(Brand.sans(15, .semibold)).foregroundStyle(Brand.ink)
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 44)
+        .frame(height: 54)
         .background(Brand.paper)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Brand.ink.opacity(0.08)).frame(height: 1)

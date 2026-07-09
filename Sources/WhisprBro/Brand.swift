@@ -74,23 +74,25 @@ struct EchoWMark: View {
 
     var body: some View {
         GeometryReader { geo in
-            let scale = min(geo.size.width / 150, geo.size.height / 100)
-            let dx = (geo.size.width - 150 * scale) / 2
-            let dy = (geo.size.height - 100 * scale) / 2
-            let lw = 8.5 * scale
+            // Fit the mark's CONTENT bounds (x 16–118 → 102 wide, y 26–65 → 39
+            // tall), padded for the round caps, so the glyph fills its frame
+            // instead of floating small inside the 150×100 viewBox.
+            let s = min(geo.size.width / 111, geo.size.height / 48)
+            let dx = (geo.size.width - 102 * s) / 2
+            let dy = (geo.size.height - 39 * s) / 2
 
             ZStack {
                 if strokes >= 3 {
-                    stroke(Self.back, scale, dx, dy, lw)
+                    stroke(Self.back, s, dx, dy, 8.5 * s)
                         .opacity(listening ? (pulse ? 0.5 : 0.1) : 0.16)
                         .animation(rippleAnim(delay: 0.28), value: pulse)
                 }
                 if strokes >= 2 {
-                    stroke(Self.middle, scale, dx, dy, lw)
+                    stroke(Self.middle, s, dx, dy, 8.5 * s)
                         .opacity(listening ? (pulse ? 0.5 : 0.1) : 0.38)
                         .animation(rippleAnim(delay: 0), value: pulse)
                 }
-                stroke(Self.front, scale, dx, dy, lw).opacity(1)
+                stroke(Self.front, s, dx, dy, 9 * s).opacity(1)
             }
             .onAppear { pulse = listening }
             .onChange(of: listening) { _, newValue in pulse = newValue }
@@ -104,7 +106,7 @@ struct EchoWMark: View {
     private func stroke(_ pts: [CGPoint], _ s: CGFloat, _ dx: CGFloat, _ dy: CGFloat, _ lw: CGFloat) -> some View {
         Path { p in
             for (i, pt) in pts.enumerated() {
-                let m = CGPoint(x: dx + pt.x * s, y: dy + pt.y * s)
+                let m = CGPoint(x: dx + (pt.x - 16) * s, y: dy + (pt.y - 26) * s)
                 if i == 0 { p.move(to: m) } else { p.addLine(to: m) }
             }
         }
@@ -116,20 +118,20 @@ struct EchoWMark: View {
 /// images to the menu-bar color; the stroke opacities survive as alpha). Drawn
 /// black with the doc's menu-bar opacities (0.18 / 0.4 / 1).
 enum EchoWImage {
-    static func menuBar(size: NSSize = NSSize(width: 20, height: 14)) -> NSImage {
+    static func menuBar(size: NSSize = NSSize(width: 26, height: 16)) -> NSImage {
         let img = NSImage(size: size, flipped: false) { rect in
-            let scale = min(rect.width / 150, rect.height / 100)
-            let dx = (rect.width - 150 * scale) / 2
-            let dy = (rect.height - 100 * scale) / 2
+            // Content-fit (x 16–118, y 26–65) so the mark fills the menu-bar slot.
+            let scale = min(rect.width / 111, rect.height / 48)
+            let dx = (rect.width - 102 * scale) / 2
+            let dy = (rect.height - 39 * scale) / 2
             func draw(_ pts: [(CGFloat, CGFloat)], width: CGFloat, opacity: CGFloat) {
                 let path = NSBezierPath()
                 path.lineCapStyle = .round
                 path.lineJoinStyle = .round
                 path.lineWidth = width * scale
                 for (i, p) in pts.enumerated() {
-                    // NSImage flipped:false has origin bottom-left; the doc's y is
-                    // top-down, so flip y within the 100-unit box.
-                    let pt = NSPoint(x: dx + p.0 * scale, y: dy + (100 - p.1) * scale)
+                    // Bottom-left origin; content y 26(top)…65(bottom) → flip.
+                    let pt = NSPoint(x: dx + (p.0 - 16) * scale, y: dy + (65 - p.1) * scale)
                     if i == 0 { path.move(to: pt) } else { path.line(to: pt) }
                 }
                 NSColor.black.withAlphaComponent(opacity).setStroke()

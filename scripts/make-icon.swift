@@ -70,9 +70,13 @@ func drawIcon(_ side: CGFloat) -> CGImage {
         ctx.setStrokeColor(border); ctx.setLineWidth(max(1, side * 0.004)); ctx.strokePath()
     }
 
-    let gw = s * 0.62, gh = gw * (100.0 / 150.0)
-    let gx = inset + (s - gw) / 2, gy = inset + (s - gh) / 2
-    func map(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: gx + x / 150 * gw, y: gy + y / 100 * gh) }
+    // echo-w, content-fitted (x 16–118 → 102 wide, y 26–65 → 39 tall) to ~62%
+    // of the squircle width — bigger + centred, not floating in the 150×100 box.
+    let markW = s * 0.62
+    let ms = markW / 102
+    let markH = 39 * ms
+    let gx = inset + (s - markW) / 2, gy = inset + (s - markH) / 2
+    func map(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: gx + (x - 16) * ms, y: gy + (y - 26) * ms) }
     ctx.setLineCap(.round); ctx.setLineJoin(.round)
     for stroke in echo {
         let p = CGMutablePath()
@@ -80,7 +84,7 @@ func drawIcon(_ side: CGFloat) -> CGImage {
             let q = map(c.0, c.1); if i == 0 { p.move(to: q) } else { p.addLine(to: q) }
         }
         ctx.setStrokeColor(rgb(style.glyph, stroke.opacity))
-        ctx.setLineWidth(stroke.width / 150 * gw)
+        ctx.setLineWidth(stroke.width * ms)
         ctx.addPath(p); ctx.strokePath()
     }
     return ctx.makeImage()!
