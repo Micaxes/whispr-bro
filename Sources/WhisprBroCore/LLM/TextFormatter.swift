@@ -97,6 +97,37 @@ public actor TextFormatter {
     /// emits most punctuation, so this is intentionally conservative.
     /// `preserveCasingFor` = lowercased dictionary targets whose casing must
     /// survive (so a leading "npm" isn't up-cased to "Npm").
+    // MARK: - Command Mode
+
+    /// Voice-edit `selection` per the spoken `instruction`. Returns the edited
+    /// text, or nil on empty/failed/timed-out generation — so the caller leaves
+    /// the user's selection untouched rather than replacing it with garbage.
+    public func command(
+        instruction: String, selection: String, language: DictationLanguage = .english
+    ) async -> String? {
+        let sel = selection.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instr = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !sel.isEmpty, !instr.isEmpty else { return nil }
+        guard await engine.isLoaded else { return nil }
+
+        let words = sel.split(whereSeparator: \.isWhitespace).count
+            + instr.split(whereSeparator: \.isWhitespace).count
+        // Edits can expand; generous floor. Off the latency-critical path, so an
+        // 8s ceiling (vs 3s for dictation) is acceptable.
+        let maxTokens = max(96, Int(Double(words) * 3.0))
+        let userText = PromptBuilder.commandUserContent(instruction: instr, selection: sel)
+        do {
+            let raw = try await engine.command(
+                systemPrompt: PromptBuilder.commandSystemPrompt,
+                userText: userText, maxTokens: maxTokens, timeout: .seconds(8))
+            let cleaned = Self.sanitize(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            return cleaned.isEmpty ? nil : cleaned
+        } catch {
+            await engine.recover()   // restore a clean formatting prefix
+            return nil
+        }
+    }
+
     static func ruleBasedCleanup(_ text: String, preserveCasingFor: Set<String> = []) -> String {
         var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = s.first else { return s }

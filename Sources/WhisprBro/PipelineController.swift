@@ -144,6 +144,16 @@ final class PipelineController: ObservableObject {
     private var recordingStartUptime: TimeInterval = 0
     private var errorGeneration = 0
 
+    /// Whether the current recording is a normal dictation or a Command-Mode
+    /// voice edit (task: hotkeys). Set at key-down, read at finish.
+    enum DictationMode { case dictation, command }
+    private var pendingMode: DictationMode = .dictation
+    /// Selected text captured at Command-Mode key-down (the edit target).
+    private var capturedSelection: String?
+    /// Set when the user hits Cancel mid-dictation so the in-flight transcribe
+    /// task skips its insert. Cleared at the start of each recording.
+    private var pendingCancel = false
+
     init() {
         // Restore the selected model (fall back to the frozen default if the
         // stored key is unknown), then build the engine for it.
@@ -286,9 +296,7 @@ final class PipelineController: ObservableObject {
         // doesn't run the SQLite open + migration on the main thread.
         Task.detached { HistoryStore.prewarm() }
         hud.levelProvider = { [weak self] in self?.audio.lastRMS ?? 0 }
-        hotkey.onKeyDown = { [weak self] in self?.hotkeyPressed() }
-        hotkey.onKeyUp = { [weak self] in self?.hotkeyReleased() }
-        hotkey.onDoubleTap = { [weak self] in self?.hotkeyDoubleTapped() }
+        hotkey.onAction = { [weak self] action, phase in self?.handleHotkey(action, phase) }
         hotkey.onHealthChange = { [weak self] healthy in self?.hotkeyHealthChanged(healthy) }
         Task { await bringUp() }
     }
@@ -554,7 +562,22 @@ final class PipelineController: ObservableObject {
 
     // MARK: - Hotkey gestures
 
-    private func hotkeyPressed() {
+    /// Central dispatch for all configurable hotkey actions (task: hotkeys).
+    private func handleHotkey(_ action: HotkeyAction, _ phase: HotkeyPhase) {
+        switch (action, phase) {
+        case (.dictate, .began): hotkeyPressed(mode: .dictation)
+        case (.dictate, .ended): hotkeyReleased()
+        case (.commandMode, .began): hotkeyPressed(mode: .command)
+        case (.commandMode, .ended): hotkeyReleased()
+        case (.handsFree, .fired): hotkeyDoubleTapped()
+        case (.cancel, .fired): cancelActive()
+        case (.pasteLast, .fired): pasteLastTranscript()
+        case (.copyLast, .fired): copyLastTranscript()
+        default: break
+        }
+    }
+
+    private func hotkeyPressed(mode: DictationMode = .dictation) {
         // A press while locked-recording is the hands-free STOP.
         if state == .recording, isLocked {
             finishRecording(trim: true)
@@ -577,6 +600,9 @@ final class PipelineController: ObservableObject {
         capturedAppName = front.appName
         capturedCategory = AppCategoryResolver.category(
             bundleId: front.bundleId, overrides: categoryOverrides)
+        pendingMode = mode
+        pendingCancel = false
+        capturedSelection = nil
 
         isLocked = false
         recordingStartUptime = ProcessInfo.processInfo.systemUptime
@@ -595,6 +621,10 @@ final class PipelineController: ObservableObject {
         audio.beginUtterance()
         hud.show(.recording)
         startMaxRecordingCap()
+        // Command Mode: read the selection to edit. Done AFTER recording starts
+        // (it's only needed at finish) so the bounded AX IPC can't delay capture
+        // or skew the tap-vs-hold timing.
+        if mode == .command { capturedSelection = AXFocus.selectedText() }
     }
 
     private func hotkeyReleased() {
@@ -704,7 +734,12 @@ final class PipelineController: ObservableObject {
 
         state = .transcribing
         hud.update(.transcribing)
-        Task { await transcribeAndInsert(samples, wasLocked: wasLocked, trim: trim, timings: timings) }
+        if pendingMode == .command {
+            let selection = capturedSelection
+            Task { await transcribeCommand(samples, selection: selection, timings: timings) }
+        } else {
+            Task { await transcribeAndInsert(samples, wasLocked: wasLocked, trim: trim, timings: timings) }
+        }
     }
 
     private func transcribeAndInsert(
@@ -793,6 +828,13 @@ final class PipelineController: ObservableObject {
                 state = .idle
                 return
             }
+            // The user hit Cancel while we were transcribing/formatting — don't paste.
+            if pendingCancel {
+                pendingCancel = false
+                state = .idle
+                hud.hide()
+                return
+            }
 
             state = .inserting
             hud.update(.inserting)
@@ -835,5 +877,134 @@ final class PipelineController: ObservableObject {
             try? await Task.sleep(for: .seconds(3))
             if case .error = state, errorGeneration == generation { state = .idle }
         }
+    }
+
+    // MARK: - Command Mode + quick actions (task: hotkeys)
+
+    /// Transcribe the spoken instruction and voice-edit the captured selection
+    /// via the LLM, then paste the result (which replaces the selection). With
+    /// no selection, falls back to a normal dictation of the spoken words.
+    private func transcribeCommand(_ samples: [Float], selection: String?, timings: StageTimings) async {
+        var timings = timings
+        do {
+            let dict = dictionary
+            let (result, asrSeconds) = try await measured { try await asr.transcribe(samples) }
+            timings.asrSeconds = asrSeconds
+            let instruction = dict.apply(result.text.trimmingCharacters(in: .whitespacesAndNewlines))
+            guard !instruction.isEmpty else { state = .idle; hud.hide(); return }
+
+            guard llmAvailable else {
+                state = .idle
+                refuse("Command mode needs the formatting model")
+                return
+            }
+            await ensureLLMLoaded()
+
+            let output: String
+            let historyRaw: String
+            if let selection, !selection.isEmpty {
+                let (edited, fmtSeconds) = await measured {
+                    await formatter.command(instruction: instruction, selection: selection,
+                                            language: dictationLanguage)
+                }
+                timings.formatSeconds = fmtSeconds
+                guard let edited, !edited.isEmpty else {
+                    state = .idle
+                    refuse("Couldn't apply that edit")
+                    return
+                }
+                output = edited
+                historyRaw = selection
+            } else {
+                // No selection: treat the spoken words as a normal dictation.
+                let (formatted, fmtSeconds) = await measured {
+                    await formatter.format(instruction, rawMode: rawMode, language: dictationLanguage)
+                }
+                timings.formatSeconds = fmtSeconds
+                output = formatted
+                historyRaw = instruction
+            }
+
+            if SecureInput.shouldRefuse { refuse("Won't insert into a secure field"); state = .idle; return }
+            if pendingCancel { pendingCancel = false; state = .idle; hud.hide(); return }
+            insertCommandResult(output, historyRaw: historyRaw, timings: timings)
+        } catch {
+            state = .idle
+            hud.show(.warning("Command failed"))
+            hud.hide(after: 2)
+            log.error("command mode failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// Insert a Command-Mode result (paste replaces the selection) + history.
+    /// Kept separate from the dictation insert so that proven path is untouched.
+    private func insertCommandResult(_ text: String, historyRaw: String, timings: StageTimings) {
+        state = .inserting
+        hud.update(.inserting)
+        var timings = timings
+        let insertClock = ContinuousClock()
+        let insertStart = insertClock.now
+        let bundleId = capturedBundleId
+        let appName = capturedAppName
+        inserter.insert(text) { [weak self] in
+            guard let self else { return }
+            timings.insertSeconds = (insertClock.now - insertStart).seconds
+            self.lastTranscript = text
+            self.lastRawTranscript = historyRaw
+            self.lastTimings = timings.description
+            self.log.info("command: \"\(text, privacy: .private)\" [\(timings.description)]")
+            self.state = .idle
+            self.hud.hide()
+            self.armIdleUnloadTimer()
+            if self.historyEnabled {
+                let record = HistoryRecord(
+                    createdAt: Date(), appBundleId: bundleId, appName: appName,
+                    rawText: historyRaw, formattedText: text,
+                    audioMs: Self.ms(timings.audioFinalizeSeconds), asrMs: Self.ms(timings.asrSeconds),
+                    formatMs: Self.ms(timings.formatSeconds), insertMs: Self.ms(timings.insertSeconds),
+                    totalMs: Self.ms(timings.totalSeconds))
+                Task.detached { await HistoryStore.shared?.save(record) }
+            }
+        }
+    }
+
+    /// Cancel (Esc): abort an in-flight dictation/command. If recording, stop the
+    /// mic and discard; if already transcribing/formatting, flag the running task
+    /// to skip its insert.
+    private func cancelActive() {
+        switch state {
+        case .recording:
+            stopTimers()
+            isLocked = false
+            _ = audio.endUtterance()
+            audio.stopCapture()
+            state = .idle
+            hud.show(.refused("Canceled")); hud.hide(after: 1)
+        case .transcribing, .inserting:
+            pendingCancel = true
+            hud.show(.refused("Canceling…")); hud.hide(after: 1)
+        default:
+            break
+        }
+    }
+
+    /// Paste the last transcript at the cursor (quick re-insert).
+    private func pasteLastTranscript() {
+        guard state == .idle, !lastTranscript.isEmpty else { return }
+        if SecureInput.shouldRefuse { NSSound.beep(); return }
+        inserter.insert(lastTranscript)
+    }
+
+    /// Copy the last transcript to the clipboard.
+    private func copyLastTranscript() {
+        guard !lastTranscript.isEmpty else { NSSound.beep(); return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lastTranscript, forType: .string)
+        hud.show(.refused("Copied last transcript")); hud.hide(after: 1)
+    }
+
+    /// Apply a rebound hotkey config live (Settings recorder).
+    func reloadHotkeys(_ config: HotkeyConfig) {
+        hotkey.reload(config)
     }
 }

@@ -252,6 +252,74 @@ public actor LlamaCppEngine {
         return String(decoding: output, as: UTF8.self)
     }
 
+    // MARK: - Command Mode
+
+    /// Voice-edit: prime an explicit `systemPrompt` (the command framing, not the
+    /// formatting one), prefill `userText` (instruction + selection), and
+    /// generate. This WIPES the cached formatting prefix, so the next `format`
+    /// re-primes — signalled by clearing `currentStyle` to the sentinel. Bounded
+    /// by `timeout` via the abort callback, like `format`.
+    public func command(
+        systemPrompt: String, userText: String, maxTokens: Int, timeout: Duration
+    ) throws -> String {
+        guard let ctx, let vocab, let sampler else {
+            throw WhisprError.modelsNotFound(modelPath)
+        }
+        // Force the next format() to re-prime the (now-clobbered) formatting prefix.
+        defer { currentStyle = "\u{1}" }
+
+        let ms = Int(timeout.components.seconds * 1000 + timeout.components.attoseconds / 1_000_000_000_000_000)
+        abort.arm()
+        let flag = abort
+        let deadline = Task.detached {
+            do { try await Task.sleep(for: .milliseconds(max(1, ms))) } catch { return }
+            flag.trip()
+        }
+        defer { deadline.cancel() }
+
+        // Prime the command system prefix from position 0 (wipes prior cache).
+        llama_memory_clear(llama_get_memory(ctx), true)
+        llama_sampler_reset(sampler)
+        let prefixTokens = tokenizeScaffolding(promptBuilder.prefix(system: systemPrompt))
+        let cmdPrefixCount = Int32(prefixTokens.count)
+        guard decode(prefixTokens, startPos: 0) else {
+            if abort.tripped { throw WhisprError.formattingTimedOut }
+            throw WhisprError.formattingFailed
+        }
+
+        // User turn: scaffolding is special-tokenized; the content is literal.
+        let (before, after) = promptBuilder.userTurn()
+        let suffixTokens = tokenizeScaffolding(before)
+            + tokenizeLiteral(userText)
+            + tokenizeScaffolding(after)
+        guard !suffixTokens.isEmpty, decode(suffixTokens, startPos: cmdPrefixCount) else {
+            if abort.tripped { throw WhisprError.formattingTimedOut }
+            throw WhisprError.formattingFailed
+        }
+
+        var nPast = cmdPrefixCount + Int32(suffixTokens.count)
+        var output = [UInt8]()
+        var pieceBuf = [CChar](repeating: 0, count: 256)
+        for _ in 0..<maxTokens {
+            let id = llama_sampler_sample(sampler, ctx, -1)
+            if llama_vocab_is_eog(vocab, id) { break }
+            var written = llama_token_to_piece(vocab, id, &pieceBuf, Int32(pieceBuf.count), 0, false)
+            if written < 0 {
+                pieceBuf = [CChar](repeating: 0, count: Int(-written))
+                written = llama_token_to_piece(vocab, id, &pieceBuf, Int32(pieceBuf.count), 0, false)
+            }
+            if written > 0 {
+                pieceBuf.prefix(Int(written)).forEach { output.append(UInt8(bitPattern: $0)) }
+            }
+            guard decode([id], startPos: nPast) else {
+                if abort.tripped { throw WhisprError.formattingTimedOut }
+                break
+            }
+            nPast += 1
+        }
+        return String(decoding: output, as: UTF8.self)
+    }
+
     // MARK: - Tokenize
 
     private func tokenizeScaffolding(_ text: String) -> [llama_token] {

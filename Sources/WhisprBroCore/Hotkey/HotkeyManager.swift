@@ -1,57 +1,72 @@
 import AppKit
 import CoreGraphics
 
-/// Global push-to-talk via a listen-only `CGEventTap` on `flagsChanged`
-/// (spec §4 HotkeyManager). Default key: Right Option (keycode 61).
+/// Global hotkeys via a listen-only `CGEventTap` (spec §4). Dispatches a
+/// configurable set of `HotkeyAction`s (see `HotkeyConfig`) rather than a single
+/// hardcoded key.
 ///
-/// Gestures:
-///  - **Hold** to talk: `onKeyDown` on press, `onKeyUp` on release (instant, no
-///    debounce delay — the primary path must not add latency).
-///  - **Double-tap** to lock hands-free: `onDoubleTap` fires on the second
-///    press within `doubleTapWindow`. (The first tap's press/release still
-///    fire; the resulting sub-300ms recording is silently dropped downstream,
-///    so hold-to-talk stays instant.)
+/// Two matching paths, both off one tap:
+///  - **Modifier-only** bindings (Right-Option/Right-Command, the primary
+///    dictation + command-mode keys) are matched on `flagsChanged` via
+///    device-specific NX masks — zero-debounce, no latency added.
+///  - **Key** bindings (Esc, ⌃⌘V, …) are matched on `keyDown`/`keyUp` with an
+///    optional modifier chord.
 ///
-/// A watchdog polls `CGEventTapIsEnabled` and re-enables (or recreates) a tap
-/// the OS disabled — and reports health so the UI can warn when the tap is
-/// dead (e.g. Input Monitoring revoked). `onHealthChange(false)` means the
-/// hotkey is not working.
+/// Gestures: `hold` → `.began`/`.ended`; `doubleTap` → `.fired` on a second
+/// press within `doubleTapWindow`; `tap` → `.fired` once per key-down.
+///
+/// A watchdog polls `CGEventTapIsEnabled` and re-enables/recreates a tap the OS
+/// disabled, reporting health so the UI can warn when it's dead (Input
+/// Monitoring revoked). A lost key-up (tap died mid-hold) is reconciled by
+/// releasing every currently-held action so the pipeline never records forever.
 public final class HotkeyManager: @unchecked Sendable {
-    /// kVK_RightOption
+    /// kVK_RightOption — the default dictation key (see `HotkeyConfig.defaults`).
     public static let defaultKeyCode: Int64 = 61
 
-    public var onKeyDown: (() -> Void)?
-    public var onKeyUp: (() -> Void)?
-    public var onDoubleTap: (() -> Void)?
+    /// Fired for every matched action. `phase`: .began/.ended (hold) or .fired.
+    public var onAction: ((HotkeyAction, HotkeyPhase) -> Void)?
     public var onHealthChange: ((Bool) -> Void)?
 
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
     private var watchdogTimer: Timer?
-    private let keyCode: Int64
-    private let deviceSpecificMask: UInt64?
     private let doubleTapWindow: TimeInterval
-    private var keyIsDown = false
-    private var lastReleaseTime: TimeInterval = 0
+
+    // Precomputed from the config for fast per-event lookup.
+    private var modifierBindings: [Int64: [(action: HotkeyAction, binding: HotkeyBinding)]] = [:]
+    private var keyBindings: [Int64: [(action: HotkeyAction, binding: HotkeyBinding)]] = [:]
+
+    // Transient runtime state.
+    private var modifierDown: [Int64: Bool] = [:]
+    private var modifierLastRelease: [Int64: TimeInterval] = [:]
+    private var regularKeyDown: Set<Int64> = []
+    /// Hold actions currently in the `.began` state — released on stuck-key
+    /// reconcile so a lost key-up can't record forever.
+    private var heldActions: Set<HotkeyAction> = []
     private var lastHealthy = true
 
-    public init(keyCode: Int64 = HotkeyManager.defaultKeyCode, doubleTapWindow: TimeInterval = 0.35) {
-        self.keyCode = keyCode
+    public init(config: HotkeyConfig = .load(), doubleTapWindow: TimeInterval = 0.35) {
         self.doubleTapWindow = doubleTapWindow
-        // .maskAlternate is shared by BOTH option keys, so releasing Right
-        // Option while Left Option is held would look like "still down".
-        // The device-specific NX bits distinguish them.
-        switch keyCode {
-        case 61: deviceSpecificMask = 0x40 // NX_DEVICERALTKEYMASK
-        case 58: deviceSpecificMask = 0x20 // NX_DEVICELALTKEYMASK
-        case 62: deviceSpecificMask = 0x2000 // NX_DEVICERCTLKEYMASK
-        case 59: deviceSpecificMask = 0x01 // NX_DEVICELCTLKEYMASK
-        case 60: deviceSpecificMask = 0x04 // NX_DEVICERSHIFTKEYMASK
-        case 56: deviceSpecificMask = 0x02 // NX_DEVICELSHIFTKEYMASK
-        case 54: deviceSpecificMask = 0x10 // NX_DEVICERCMDKEYMASK
-        case 55: deviceSpecificMask = 0x08 // NX_DEVICELCMDKEYMASK
-        default: deviceSpecificMask = nil
+        indexBindings(config)
+    }
+
+    private func indexBindings(_ config: HotkeyConfig) {
+        modifierBindings = [:]; keyBindings = [:]
+        for e in config.entries {
+            if e.binding.isModifierOnly {
+                modifierBindings[e.binding.keyCode, default: []].append((e.action, e.binding))
+            } else {
+                keyBindings[e.binding.keyCode, default: []].append((e.action, e.binding))
+            }
         }
+    }
+
+    /// Apply a new config live (Settings rebind). Releases any held action so a
+    /// key that's no longer bound can't stay stuck "down".
+    public func reload(_ config: HotkeyConfig) {
+        for action in heldActions { emit(action, .ended) }
+        heldActions.removeAll(); modifierDown.removeAll(); regularKeyDown.removeAll()
+        indexBindings(config)
     }
 
     public func start() throws {
@@ -64,13 +79,16 @@ public final class HotkeyManager: @unchecked Sendable {
         watchdogTimer?.invalidate()
         watchdogTimer = nil
         teardownTap()
-        keyIsDown = false
+        modifierDown.removeAll(); regularKeyDown.removeAll(); heldActions.removeAll()
     }
 
     // MARK: - Tap lifecycle
 
     private func createTap() throws {
-        let mask: CGEventMask = 1 << CGEventType.flagsChanged.rawValue
+        let mask: CGEventMask =
+            (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.keyUp.rawValue)
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -106,43 +124,24 @@ public final class HotkeyManager: @unchecked Sendable {
         eventTap = nil
     }
 
-    /// Belt-and-suspenders: the OS silently disables slow/secure-input taps,
-    /// and a revoked Input Monitoring grant kills the tap with no callback.
     private func startWatchdog() {
         let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
             self?.checkTapHealth()
         }
-        // .common so the watchdog keeps firing while a menu/modal is open.
         RunLoop.main.add(timer, forMode: .common)
         watchdogTimer = timer
     }
 
     private func checkTapHealth() {
         guard let tap = eventTap else { return }
-        if CGEvent.tapIsEnabled(tap: tap) {
-            reportHealth(true)
-            return
-        }
-        // Disabled: try to re-enable in place first.
+        if CGEvent.tapIsEnabled(tap: tap) { reportHealth(true); return }
         CGEvent.tapEnable(tap: tap, enable: true)
-        if CGEvent.tapIsEnabled(tap: tap) {
-            reportHealth(true)
-            return
-        }
-        // Still dead — recreate from scratch (grant may have lapsed). If the
-        // key was held when the tap died, its release event was lost; reconcile
-        // the stuck "down" as a release so the pipeline doesn't record forever.
+        if CGEvent.tapIsEnabled(tap: tap) { reportHealth(true); return }
+        // Still dead — recreate. Release any held action (its key-up was lost).
         teardownTap()
-        if keyIsDown {
-            keyIsDown = false
-            DispatchQueue.main.async { self.onKeyUp?() }
-        }
-        do {
-            try createTap()
-            reportHealth(true)
-        } catch {
-            reportHealth(false)
-        }
+        reconcileStuck()
+        do { try createTap(); reportHealth(true) }
+        catch { reportHealth(false) }
     }
 
     private func reportHealth(_ healthy: Bool) {
@@ -151,49 +150,88 @@ public final class HotkeyManager: @unchecked Sendable {
         DispatchQueue.main.async { self.onHealthChange?(healthy) }
     }
 
+    /// Release every held hold-action (a lost key-up must not record forever).
+    private func reconcileStuck() {
+        for action in heldActions { emit(action, .ended) }
+        heldActions.removeAll(); modifierDown.removeAll(); regularKeyDown.removeAll()
+    }
+
     // MARK: - Event handling
 
     private func handle(type: CGEventType, event: CGEvent) {
-        // The OS disables taps that are slow or when secure input starts;
-        // re-enable immediately. A key release delivered while the tap was
-        // dead is lost, so reconcile a stuck "down" as released rather than
-        // recording forever.
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let eventTap {
-                CGEvent.tapEnable(tap: eventTap, enable: true)
-            }
-            if keyIsDown {
-                keyIsDown = false
-                DispatchQueue.main.async { self.onKeyUp?() }
-            }
+            if let eventTap { CGEvent.tapEnable(tap: eventTap, enable: true) }
+            reconcileStuck()
             return
         }
-        guard type == .flagsChanged,
-              event.getIntegerValueField(.keyboardEventKeycode) == keyCode
-        else { return }
-
-        let modifierDown: Bool
-        if let deviceSpecificMask {
-            modifierDown = event.flags.rawValue & deviceSpecificMask != 0
-        } else {
-            modifierDown = event.flags.contains(.maskAlternate)
-        }
-
-        // Monotonic seconds. (CGEvent.timestamp is mach_absolute_time ticks,
-        // NOT nanoseconds — dividing by 1e9 would be ~42x off on Apple
-        // Silicon; systemUptime sidesteps the timebase conversion entirely.)
+        // Monotonic seconds (CGEvent.timestamp is mach ticks, ~42x off).
         let now = ProcessInfo.processInfo.systemUptime
-        if modifierDown, !keyIsDown {
-            keyIsDown = true
-            let isDoubleTap = (now - lastReleaseTime) <= doubleTapWindow
-            DispatchQueue.main.async {
-                self.onKeyDown?()
-                if isDoubleTap { self.onDoubleTap?() }
-            }
-        } else if !modifierDown, keyIsDown {
-            keyIsDown = false
-            lastReleaseTime = now
-            DispatchQueue.main.async { self.onKeyUp?() }
+        switch type {
+        case .flagsChanged: handleFlags(event, now: now)
+        case .keyDown: handleKeyDown(event)
+        case .keyUp: handleKeyUp(event)
+        default: break
         }
+    }
+
+    private func handleFlags(_ event: CGEvent, now: TimeInterval) {
+        let kc = event.getIntegerValueField(.keyboardEventKeycode)
+        guard let bindings = modifierBindings[kc], let first = bindings.first?.binding else { return }
+        let flags = event.flags.rawValue
+        let pressed: Bool
+        if let dm = first.deviceSpecificMask { pressed = flags & dm != 0 }
+        else { pressed = event.flags.contains(.maskAlternate) }
+
+        let prev = modifierDown[kc] ?? false
+        if pressed, !prev {
+            modifierDown[kc] = true
+            let isDouble = (now - (modifierLastRelease[kc] ?? -1000)) <= doubleTapWindow
+            for (action, binding) in bindings {
+                // Any *extra* required modifiers beyond the key itself.
+                if binding.modifiers != 0, !binding.chordSatisfied(by: flags) { continue }
+                switch binding.gesture {
+                case .hold: heldActions.insert(action); emit(action, .began)
+                case .doubleTap: if isDouble { emit(action, .fired) }
+                case .tap: emit(action, .fired)
+                }
+            }
+        } else if !pressed, prev {
+            modifierDown[kc] = false
+            modifierLastRelease[kc] = now
+            for (action, binding) in bindings where binding.gesture == .hold {
+                if heldActions.remove(action) != nil { emit(action, .ended) }
+            }
+        }
+    }
+
+    private func handleKeyDown(_ event: CGEvent) {
+        let kc = event.getIntegerValueField(.keyboardEventKeycode)
+        guard let bindings = keyBindings[kc] else { return }
+        if regularKeyDown.contains(kc) { return }   // ignore auto-repeat
+        regularKeyDown.insert(kc)
+        let flags = event.flags.rawValue
+        for (action, binding) in bindings {
+            // Superset match: required modifiers must all be present. A binding
+            // with no modifiers (Esc/cancel) fires even while others are held.
+            if !binding.chordSatisfied(by: flags) { continue }
+            switch binding.gesture {
+            case .tap: emit(action, .fired)
+            case .hold: heldActions.insert(action); emit(action, .began)
+            case .doubleTap: break   // regular-key double-tap unsupported (unused)
+            }
+        }
+    }
+
+    private func handleKeyUp(_ event: CGEvent) {
+        let kc = event.getIntegerValueField(.keyboardEventKeycode)
+        regularKeyDown.remove(kc)
+        guard let bindings = keyBindings[kc] else { return }
+        for (action, binding) in bindings where binding.gesture == .hold {
+            if heldActions.remove(action) != nil { emit(action, .ended) }
+        }
+    }
+
+    private func emit(_ action: HotkeyAction, _ phase: HotkeyPhase) {
+        DispatchQueue.main.async { self.onAction?(action, phase) }
     }
 }

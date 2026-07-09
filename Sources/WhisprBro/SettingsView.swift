@@ -1,207 +1,247 @@
 import SwiftUI
 import WhisprBroCore
 
-/// Preferences window (spec §11.7): the ModelManager pane (on-disk sha256
-/// verify), the formatting-model preset picker (incl. the Qwen3 quality
-/// preset), the idle-LLM-unload setting, the ASR fallback-engine slot, and the
-/// offline posture at a glance.
+/// Preferences window (spec §11.7), rebuilt to the brand "App UI" mockup (design
+/// §6f): a cream window with an echo-w title bar, a left tab rail with an
+/// "offline" card, and branded radio rows / cards. All bindings are unchanged
+/// from the previous Form-based version.
 struct SettingsView: View {
     @ObservedObject var pipeline: PipelineController
     @StateObject private var models = ModelStatusModel()
-    // @AppStorage makes the ASR selection an observable SwiftUI dependency (a
-    // plain UserDefaults static would not re-render the picker or its note).
-    // Same "asrEngineKind" key AsrEngineKind.selected reads, so they stay in sync.
     @AppStorage("asrEngineKind") private var asrKindRaw = AsrEngineKind.parakeet.rawValue
-    // Active dictation language (English default). Same "dictationLanguage" key
-    // DictationLanguage.selected reads, so the picker and pipeline stay in sync.
     @AppStorage(DictationLanguage.storageKey) private var languageRaw = DictationLanguage.english.rawValue
+    @State private var tab: Tab = .models
+
+    enum Tab: String, CaseIterable { case models, shortcuts, autoClean, performance, privacy
+        var title: String {
+            switch self {
+            case .models: "Models"
+            case .shortcuts: "Shortcuts"
+            case .autoClean: "Auto-Clean"
+            case .performance: "Performance"
+            case .privacy: "Privacy"
+            }
+        }
+    }
 
     var body: some View {
-        TabView {
-            modelsTab.tabItem { Label("Models", systemImage: "shippingbox") }
-            autoCleanTab.tabItem { Label("Auto-Clean", systemImage: "wand.and.sparkles") }
-            performanceTab.tabItem { Label("Performance", systemImage: "gauge") }
-            privacyTab.tabItem { Label("Privacy", systemImage: "lock.shield") }
+        BrandWindow(title: "Settings") {
+            HStack(spacing: 0) {
+                rail
+                content
+            }
         }
-        .frame(width: 520, height: 460)
+        .frame(width: 660, height: 520)
         .task { await models.refresh() }
+    }
+
+    private var rail: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            ForEach(Tab.allCases, id: \.self) { t in
+                BrandTab(title: t.title, selected: tab == t) { tab = t }
+            }
+            Spacer(minLength: 12)
+            OfflineCard()
+        }
+        .padding(12)
+        .frame(width: 184)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(Brand.raised)
+        .overlay(alignment: .trailing) { Rectangle().fill(Brand.ink.opacity(0.08)).frame(width: 1) }
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                switch tab {
+                case .models: modelsContent
+                case .shortcuts: ShortcutsSettingsView(pipeline: pipeline)
+                case .autoClean: autoCleanContent
+                case .performance: performanceContent
+                case .privacy: privacyContent
+                }
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     // MARK: Models
 
-    private var modelsTab: some View {
-        Form {
-            Section("Formatting model") {
-                Picker("Model", selection: llmBinding) {
-                    ForEach(LlmCatalog.all, id: \.key) { spec in
-                        Text(label(for: spec)).tag(spec.key)
-                            .disabled(!spec.isInstalled)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text("Qwen2.5 1.5B is the measured default. Qwen3 1.7B is a higher-quality preset (slower — best on Pro/Max). Only installed models can be selected.")
-                    .font(.caption).foregroundStyle(.secondary)
+    @ViewBuilder private var modelsContent: some View {
+        section("Formatting model") {
+            ForEach(LlmCatalog.all, id: \.key) { spec in
+                BrandRadioRow(
+                    title: spec.isInstalled ? spec.displayName : "\(spec.displayName) — not installed",
+                    subtitle: llmSubtitle(spec.key),
+                    selected: pipeline.llmModelKey == spec.key,
+                    enabled: spec.isInstalled
+                ) { pipeline.selectLLM(key: spec.key) }
             }
-
-            Section("Dictation language") {
-                Picker("Language", selection: languageBinding) {
-                    ForEach(DictationLanguage.allCases, id: \.self) { lang in
-                        Text(lang.displayName).tag(lang)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text(languageNote).font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section("Speech-recognition engine") {
-                Picker("Engine", selection: asrBinding) {
-                    ForEach(AsrEngineKind.allCases, id: \.self) { kind in
-                        Text(kind.displayName).tag(kind)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text(asrEngineNote).font(.caption).foregroundStyle(.secondary)
-            }
-
-            Section {
-                ForEach(models.groups) { g in
-                    HStack {
-                        Image(systemName: g.isVerified ? "checkmark.seal.fill"
-                              : (g.isInstalled ? "exclamationmark.triangle.fill" : "xmark.seal"))
-                            .foregroundStyle(g.isVerified ? .green : (g.isInstalled ? .orange : .secondary))
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(g.displayName)
-                            Text(g.summary).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                }
-            } header: {
-                HStack {
-                    Text("Installed model integrity")
-                    Spacer()
-                    Button(models.verifying ? "Verifying…" : "Verify on disk") {
-                        Task { await models.refresh() }
-                    }
-                    .disabled(models.verifying)
-                }
-            } footer: {
-                Text("Re-hashes every model file against the checked-in sha256 manifest. Fetch or repair with scripts/fetch-models.sh.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
+            BrandCaption("Only installed models can be selected. Qwen2.5 1.5B is the measured default.")
         }
-        .formStyle(.grouped)
+
+        section("Dictation language") {
+            ForEach(DictationLanguage.allCases, id: \.self) { lang in
+                BrandRadioRow(
+                    title: lang.displayName,
+                    subtitle: lang == .english ? "Fast Parakeet v2 (English only)" : "Multilingual Parakeet v3",
+                    selected: (DictationLanguage(rawValue: languageRaw) ?? .english) == lang
+                ) { languageRaw = lang.rawValue }
+            }
+            BrandCaption(languageNote)
+        }
+
+        section("Speech-recognition engine") {
+            ForEach(AsrEngineKind.allCases, id: \.self) { kind in
+                BrandRadioRow(
+                    title: kind.displayName,
+                    selected: (AsrEngineKind(rawValue: asrKindRaw) ?? .parakeet) == kind
+                ) { asrKindRaw = kind.rawValue }
+            }
+            BrandCaption(asrEngineNote)
+        }
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                BrandSectionLabel("Installed model integrity")
+                Spacer()
+                Button(models.verifying ? "Verifying…" : "Verify on disk") {
+                    Task { await models.refresh() }
+                }
+                .buttonStyle(.plain)
+                .font(Brand.sans(12, .medium))
+                .foregroundStyle(Brand.ink)
+                .disabled(models.verifying)
+            }
+            BrandCard {
+                ForEach(Array(models.groups.enumerated()), id: \.element.id) { i, g in
+                    if i > 0 { Rectangle().fill(Brand.ink.opacity(0.06)).frame(height: 1) }
+                    integrityRow(g)
+                }
+                if models.groups.isEmpty {
+                    BrandCaption("Run scripts/fetch-models.sh to install models.")
+                }
+            }
+            BrandCaption("Re-hashes every model file against the checked-in sha256 manifest.")
+        }
+    }
+
+    private func integrityRow(_ g: ModelManager.GroupStatus) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                Circle().fill(g.isVerified ? Brand.ink : (g.isInstalled ? Brand.signal : Brand.mist))
+                Image(systemName: g.isVerified ? "checkmark" : (g.isInstalled ? "exclamationmark" : "minus"))
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(Brand.paper)
+            }
+            .frame(width: 16, height: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(g.displayName).font(Brand.sans(13, .medium)).foregroundStyle(Brand.ink)
+                Text(g.summary).font(Brand.mono(11.5)).foregroundStyle(Brand.mist)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
     }
 
     // MARK: Auto-Clean
 
-    private var autoCleanTab: some View {
-        Form {
-            Section("Auto-Clean") {
-                Picker("Level", selection: $pipeline.cleanupLevel) {
-                    ForEach(AppConfig.Cleanup.Level.allCases, id: \.self) { level in
-                        Text(level.displayName).tag(level)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text(cleanupLevelNote).font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                Text("“Standard” resolves self-corrections: when you misspeak and restate — “meet at 2, actually 3” — only the corrected version “meet at 3” is kept. If unsure, it keeps both. It never changes facts, numbers, or names.")
-                    .font(.caption).foregroundStyle(.secondary)
-            } header: {
-                Text("How corrections work")
-            } footer: {
-                Text("In code editors, terminals, and notes, Auto-Clean's filler removal and self-correction are skipped (your normal per-app formatting still applies). The filler set and these verbatim apps are editable in config.toml (menu → Edit dictionary & config…).")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Undo") {
-                Label("An edit removed words? Menu → “Undo last Auto-Clean (paste raw)” re-inserts exactly what you said.", systemImage: "arrow.uturn.backward")
-                    .font(.caption)
-                Text("Note: raw is your verbatim words — it also restores fillers and drops added punctuation/capitalization. A single-deletion undo is a future feature.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Atypical speech") {
-                Text("If you stutter, are dictating in a second language, or want your repetitions kept, set Level to “Off (verbatim)” — nothing is removed. Defaults stay conservative.")
-                    .font(.caption).foregroundStyle(.secondary)
+    @ViewBuilder private var autoCleanContent: some View {
+        section("Auto-Clean level") {
+            ForEach(AppConfig.Cleanup.Level.allCases, id: \.self) { level in
+                BrandRadioRow(
+                    title: level.displayName,
+                    subtitle: cleanupSubtitle(level),
+                    selected: pipeline.cleanupLevel == level
+                ) { pipeline.cleanupLevel = level }
             }
         }
-        .formStyle(.grouped)
-    }
-
-    private var cleanupLevelNote: String {
-        switch pipeline.cleanupLevel {
-        case .verbatim: "Nothing is removed — you get exactly what you said (with your dictionary applied)."
-        case .fillers: "Removes filler words (um, uh, er) only. No wording is changed. Safe default."
-        case .standard: "Removes fillers AND resolves self-corrections (opt-in). Uses the on-device model."
+        section("How corrections work") {
+            BrandCaption("“Standard” resolves self-corrections: say “meet at 2, actually 3” and only “meet at 3” is kept. If unsure, it keeps both. It never changes facts, numbers, or names. In code editors, terminals, and notes, filler removal and self-correction are skipped.")
+        }
+        section("Atypical speech") {
+            BrandCaption("If you stutter, dictate in a second language, or want repetitions kept, set the level to “Off (verbatim)” — nothing is removed.")
         }
     }
 
     // MARK: Performance
 
-    private var performanceTab: some View {
-        Form {
-            Section("Idle LLM unload") {
-                Toggle("Unload the formatting model when idle", isOn: $pipeline.idleUnloadEnabled)
-                Stepper("After \(pipeline.idleUnloadMinutes) min idle",
-                        value: $pipeline.idleUnloadMinutes, in: 1...60)
-                    .disabled(!pipeline.idleUnloadEnabled)
-                Text("Frees ~1GB of memory after the model sits unused. The next dictation reloads it (~1–2s once).")
-                    .font(.caption).foregroundStyle(.secondary)
+    @ViewBuilder private var performanceContent: some View {
+        section("Idle LLM unload") {
+            BrandCard {
+                Toggle(isOn: $pipeline.idleUnloadEnabled) {
+                    Text("Unload the formatting model when idle").font(Brand.sans(14)).foregroundStyle(Brand.ink)
+                }
+                .toggleStyle(.switch).tint(Brand.ink)
+                Rectangle().fill(Brand.ink.opacity(0.06)).frame(height: 1)
+                Stepper(value: $pipeline.idleUnloadMinutes, in: 1...60) {
+                    Text("After \(pipeline.idleUnloadMinutes) min idle").font(Brand.sans(14)).foregroundStyle(Brand.ink)
+                }
+                .disabled(!pipeline.idleUnloadEnabled)
             }
+            BrandCaption("Frees ~1GB of memory after the model sits unused. The next dictation reloads it (~1–2s once).")
         }
-        .formStyle(.grouped)
     }
 
     // MARK: Privacy
 
-    private var privacyTab: some View {
-        Form {
-            Section("History") {
-                Toggle("Save dictation history", isOn: $pipeline.historyEnabled)
-                Text("When off, dictations are inserted but never written to the local history database.")
-                    .font(.caption).foregroundStyle(.secondary)
+    @ViewBuilder private var privacyContent: some View {
+        section("History") {
+            BrandCard {
+                Toggle(isOn: $pipeline.historyEnabled) {
+                    Text("Save dictation history").font(Brand.sans(14)).foregroundStyle(Brand.ink)
+                }
+                .toggleStyle(.switch).tint(Brand.ink)
             }
-            Section("Offline") {
-                Label("Runs entirely on this Mac — no network, no telemetry.", systemImage: "wifi.slash")
-                Text("Enforced three ways: a CI symbol audit, a runtime connect() tripwire, and a tcpdump zero-packet capture. See docs/OFFLINE.md for the Little Snitch / LuLu deny-all rule.")
-                    .font(.caption).foregroundStyle(.secondary)
+            BrandCaption("When off, dictations are inserted but never written to the local history database.")
+        }
+        section("Offline") {
+            BrandCard {
+                HStack(spacing: 8) {
+                    Circle().fill(Brand.ink).frame(width: 7, height: 7)
+                    Text("Runs entirely on this Mac — no network, no telemetry.")
+                        .font(Brand.sans(14)).foregroundStyle(Brand.ink)
+                }
+                BrandCaption("Enforced three ways: a CI symbol audit, a runtime connect() tripwire, and a tcpdump zero-packet capture. See docs/OFFLINE.md for the Little Snitch / LuLu deny-all rule.")
             }
         }
-        .formStyle(.grouped)
     }
 
-    // MARK: Bindings & labels
+    // MARK: Helpers
 
-    private var llmBinding: Binding<String> {
-        Binding(get: { pipeline.llmModelKey }, set: { pipeline.selectLLM(key: $0) })
+    @ViewBuilder private func section(_ label: String, @ViewBuilder _ content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            BrandSectionLabel(label)
+            content()
+        }
     }
 
-    private var asrBinding: Binding<AsrEngineKind> {
-        Binding(
-            get: { AsrEngineKind(rawValue: asrKindRaw) ?? .parakeet },
-            set: { asrKindRaw = $0.rawValue })   // @AppStorage write → view re-renders
+    private func llmSubtitle(_ key: String) -> String {
+        switch key {
+        case "qwen2_5_1_5b": "Measured default · Metal"
+        case "qwen3_1_7b": "Higher quality · best on Pro/Max"
+        case "llama3_2_1b": "1B · fastest, lower quality"
+        default: "GGUF · llama.cpp"
+        }
     }
 
-    private var languageBinding: Binding<DictationLanguage> {
-        Binding(
-            get: { DictationLanguage(rawValue: languageRaw) ?? .english },
-            set: { languageRaw = $0.rawValue })
+    private func cleanupSubtitle(_ level: AppConfig.Cleanup.Level) -> String {
+        switch level {
+        case .verbatim: "Nothing removed — exactly what you said."
+        case .fillers: "Removes fillers (um, uh, er) only. Safe default."
+        case .standard: "Fillers + self-correction resolution (opt-in)."
+        }
     }
 
     private var languageNote: String {
         (DictationLanguage(rawValue: languageRaw) ?? .english) == .english
             ? "English uses the fast Parakeet v2 model. Language changes apply on next launch."
-            : "Italian & Spanish use the multilingual Parakeet v3 model — install it with scripts/fetch-models.sh if you haven't. Applies on next launch."
-    }
-
-    private func label(for spec: LlmModelSpec) -> String {
-        spec.isInstalled ? spec.displayName : "\(spec.displayName) — not installed"
+            : "Italian & Spanish use the multilingual Parakeet v3 model — install it with scripts/fetch-models.sh. Applies on next launch."
     }
 
     private var asrEngineNote: String {
         (AsrEngineKind(rawValue: asrKindRaw) ?? .parakeet) == .whisperCpp
-            ? "whisper.cpp is a fallback slot and isn't bundled in this build — the app stays on Parakeet. Selection applies on next launch."
+            ? "whisper.cpp isn't bundled in this build — the app stays on Parakeet. Applies on next launch."
             : "Parakeet runs on the Neural Engine (~150ms). Engine changes apply on next launch."
     }
 }

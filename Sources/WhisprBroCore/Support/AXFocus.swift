@@ -19,6 +19,16 @@ public enum AXFocus {
         return (ref as! AXUIElement)
     }
 
+    /// The selected text in the focused element (Command Mode reads this at
+    /// key-down, off the capture hot path). nil if nothing is selected or the
+    /// element doesn't expose `kAXSelectedTextAttribute`.
+    public static func selectedText(timeout: Float = 0.25) -> String? {
+        guard let el = focusedElement(timeout: timeout) else { return nil }
+        let sel = stringAttribute(el, kAXSelectedTextAttribute as String)
+        guard let sel, !sel.isEmpty else { return nil }
+        return sel
+    }
+
     /// Read a string attribute off an element, or nil.
     public static func stringAttribute(_ element: AXUIElement, _ name: String) -> String? {
         var ref: CFTypeRef?

@@ -11,7 +11,7 @@ struct WhisprBroApp: App {
         MenuBarExtra {
             MenuBarView(pipeline: pipeline)
         } label: {
-            Image(systemName: statusSymbol)
+            menuBarLabel
         }
         .menuBarExtraStyle(.menu)
 
@@ -20,11 +20,11 @@ struct WhisprBroApp: App {
         // window is open — otherwise the window opens unfocused/behind.
         Window("History", id: "history") {
             HistoryView()
-                .frame(minWidth: 520, minHeight: 320)
                 .onDisappear { ActivationPolicy.deactivateIfNoWindows() }
         }
+        .windowStyle(.hiddenTitleBar)   // cream full-bleed chrome (brand); OS traffic lights float over the header
         .windowResizability(.contentMinSize)
-        .defaultSize(width: 760, height: 480)
+        .defaultSize(width: 820, height: 520)
 
         // Preferences: model integrity, formatting-model preset, idle unload,
         // ASR engine, privacy. Same accessory→regular promotion as History.
@@ -32,16 +32,18 @@ struct WhisprBroApp: App {
             SettingsView(pipeline: pipeline)
                 .onDisappear { ActivationPolicy.deactivateIfNoWindows() }
         }
+        .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
     }
 
-    private var statusSymbol: String {
+    /// Menu-bar mark: the echo-w brand glyph (a tinted template image that adapts
+    /// to the menu bar), or a warning triangle when something needs attention.
+    @ViewBuilder private var menuBarLabel: some View {
         switch pipeline.state {
-        case .idle: "mic"
-        case .recording: "mic.fill"
-        case .transcribing, .loadingModels: "hourglass"
-        case .inserting: "text.cursor"
-        case .needsPermissions, .modelsMissing, .error: "mic.slash"
+        case .needsPermissions, .modelsMissing, .error:
+            Image(systemName: "exclamationmark.triangle")
+        default:
+            Image(nsImage: EchoWImage.menuBar())
         }
     }
 }

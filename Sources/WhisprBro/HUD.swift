@@ -110,7 +110,7 @@ final class HUDController {
 
     private func ensurePanel() {
         guard panel == nil else { return }
-        let size = NSSize(width: 220, height: 64)
+        let size = NSSize(width: 248, height: 92)
         let panel = HUDPanel(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless, .nonactivatingPanel],
@@ -150,96 +150,87 @@ final class HUDController {
     }
 }
 
-/// The HUD visuals: a pill with a status glyph, a live waveform, and a label.
+/// The HUD visuals: **the Pebble** — a dark ink capsule with the echo-w mark,
+/// a live center-tapered waveform, and mono status text (brand doc §6a).
 private struct HUDView: View {
     @ObservedObject var model: HUDModel
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: glyph)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 22)
+        pebble.frame(maxWidth: .infinity, maxHeight: .infinity) // center in the panel
+    }
 
-            if showsWaveform {
-                Waveform(levels: model.levels, tint: tint)
+    private var pebble: some View {
+        HStack(spacing: 12) {
+            EchoWMark(color: Brand.paper, listening: isLive)
+                .frame(width: 30, height: 20)
+
+            if isLive {
+                Waveform(levels: model.levels)
                     .frame(maxWidth: .infinity)
             } else {
                 Text(label)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
+                    .font(Brand.mono(12, .medium))
+                    .foregroundStyle(labelColor)
                     .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(.horizontal, 16)
-        .frame(width: 220, height: 64)
+        .padding(.horizontal, 20)
+        .frame(width: 216, height: 56)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.black.opacity(0.82))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .strokeBorder(tint.opacity(0.5), lineWidth: 1)
-                )
+            Capsule()
+                .fill(Brand.ink)
+                .overlay(Capsule().strokeBorder(Brand.pebbleBorder, lineWidth: 1))
         )
+        .shadow(color: Brand.ink.opacity(0.55), radius: 18, x: 0, y: 12)
     }
 
-    private var showsWaveform: Bool {
+    /// Recording or hands-free = "listening": show the live waveform + ripple.
+    private var isLive: Bool {
         switch model.phase {
         case .recording, .locked: true
         default: false
         }
     }
 
-    private var glyph: String {
+    private var labelColor: Color {
         switch model.phase {
-        case .recording: "mic.fill"
-        case .locked: "lock.fill"
-        case .transcribing: "waveform"
-        case .inserting: "text.cursor"
-        case .refused: "hand.raised.fill"
-        case .warning: "exclamationmark.triangle.fill"
-        }
-    }
-
-    private var tint: Color {
-        switch model.phase {
-        case .recording: .green
-        case .locked: .blue
-        case .transcribing, .inserting: .cyan
-        case .refused, .warning: .orange
+        case .refused: Brand.signal
+        default: Brand.lightMono
         }
     }
 
     private var label: String {
         switch model.phase {
-        case .recording: "Recording…"
-        case .locked: "Hands-free…"
-        case .transcribing: "Transcribing…"
-        case .inserting: "Inserting…"
+        case .recording: "recording…"
+        case .locked: "hands-free…"
+        case .transcribing: "transcribing…"
+        case .inserting: "inserting…"
         case .refused(let message): message
         case .warning(let message): message
         }
     }
 }
 
-/// Simple symmetric bar waveform driven by recent RMS levels.
+/// Center-tapered bar waveform (brand doc: "28 samples · 30fps · center-tapered")
+/// driven by recent RMS levels. Cream bars on the ink pebble; a `sin(i·π)`
+/// envelope tapers the ends to zero.
 private struct Waveform: View {
     let levels: [Float]
-    let tint: Color
 
     var body: some View {
         GeometryReader { geo in
             let count = levels.count
-            let spacing: CGFloat = 2
-            let barWidth = max(1, (geo.size.width - spacing * CGFloat(count - 1)) / CGFloat(count))
+            let spacing: CGFloat = 2.5
+            let barWidth = max(1.5, (geo.size.width - spacing * CGFloat(count - 1)) / CGFloat(count))
             HStack(alignment: .center, spacing: spacing) {
-                ForEach(Array(levels.enumerated()), id: \.offset) { _, level in
+                ForEach(Array(levels.enumerated()), id: \.offset) { index, level in
+                    let taper = sin(Double(index) / Double(max(1, count - 1)) * .pi)
                     Capsule()
-                        .fill(tint)
+                        .fill(Brand.paper)
                         .frame(
                             width: barWidth,
-                            height: max(3, CGFloat(level) * geo.size.height)
+                            height: max(2, CGFloat(level) * CGFloat(taper) * geo.size.height)
                         )
                 }
             }

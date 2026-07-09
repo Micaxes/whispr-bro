@@ -27,6 +27,17 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN" "$APP/Contents/MacOS/WhisprBro"
 
+# Bundle the brand fonts (Archivo + IBM Plex Mono). ATSApplicationFontsPath in
+# Info.plist auto-registers everything under Contents/Resources/Fonts at launch,
+# so Brand.sans/Brand.mono resolve to the real faces (else they fall back to the
+# system font).
+if compgen -G "$ROOT/Fonts/*.ttf" > /dev/null; then
+  mkdir -p "$APP/Contents/Resources/Fonts"
+  cp "$ROOT"/Fonts/*.ttf "$APP/Contents/Resources/Fonts/"
+else
+  echo "warning: no fonts in $ROOT/Fonts — UI falls back to system fonts" >&2
+fi
+
 # Ship the sha256 manifests so the in-app ModelManager can re-verify installed
 # models on disk (Bundle.main/Contents/Resources/manifests — see ModelManager).
 # Per-file with a warning so a missing manifest degrades gracefully (ModelManager
@@ -72,6 +83,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>ATSApplicationFontsPath</key>
+	<string>Fonts</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>whispr-bro transcribes your speech entirely on this Mac. Audio never leaves the device.</string>
 </dict>

@@ -129,7 +129,14 @@ public struct PromptBuilder: Sendable {
     /// far more reliably than a user-turn aside — and re-primed only when the
     /// (coarse) category changes, which is rare.
     public func prefix(styleDirective: String = "") -> String {
-        let sys = styleDirective.isEmpty ? systemPrompt : systemPrompt + "\n\n" + styleDirective
+        prefix(system: systemPrompt, styleDirective: styleDirective)
+    }
+
+    /// Same as `prefix` but with an explicit system prompt — used by Command
+    /// Mode, which primes a different system block ("you are a text editor")
+    /// than the dictation formatter.
+    public func prefix(system: String, styleDirective: String = "") -> String {
+        let sys = styleDirective.isEmpty ? system : system + "\n\n" + styleDirective
         switch family {
         case .llama3:
             return """
@@ -143,6 +150,25 @@ public struct PromptBuilder: Sendable {
             \(sys)<|im_end|>
             """
         }
+    }
+
+    // MARK: - Command Mode (voice editing of a selection)
+
+    /// System prompt for Command Mode: edit the SELECTED text per a spoken
+    /// INSTRUCTION and output only the result. Language-agnostic ("keep the
+    /// original language") so it works across en/it/es without a per-language
+    /// variant.
+    public static let commandSystemPrompt = """
+    You are a precise text editor. The user gives an INSTRUCTION and a block of \
+    TEXT. Apply the instruction to the text and output ONLY the resulting text — \
+    no preamble, no quotation marks, no commentary, no explanation. Keep the \
+    text's original language unless the instruction explicitly says to translate. \
+    If the instruction is unclear or empty, return the text unchanged.
+    """
+
+    /// The Command Mode user turn: the spoken instruction plus the selected text.
+    public static func commandUserContent(instruction: String, selection: String) -> String {
+        "INSTRUCTION: \(instruction)\n\nTEXT:\n\(selection)"
     }
 
     /// The user-turn scaffolding, split so the transcript can be tokenized as
