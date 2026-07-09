@@ -144,3 +144,26 @@ enum EchoWImage {
         return img
     }
 }
+
+/// The two app-icon variants (brand doc §4). The Finder / bundle icon is fixed
+/// at build time (WHISPR_ICON in make-app.sh); this picker swaps the LIVE Dock
+/// icon via `NSApplication.applicationIconImage`, visible while a window is open.
+enum AppIconVariant: String, CaseIterable, Sendable {
+    case dark, cream
+
+    static let storageKey = "appIconVariant"
+    var displayName: String { self == .dark ? "Dark" : "Cream" }
+    var resourceName: String { "AppIcon-\(self == .dark ? "Dark" : "Cream")" }
+
+    static var selected: AppIconVariant {
+        AppIconVariant(rawValue: UserDefaults.standard.string(forKey: storageKey) ?? "") ?? .dark
+    }
+
+    /// Set the running app's Dock icon from the bundled .icns. No-op under
+    /// `swift run` (the resource bundle isn't present there).
+    @MainActor func applyToDock() {
+        guard let url = Bundle.main.url(forResource: resourceName, withExtension: "icns"),
+              let image = NSImage(contentsOf: url) else { return }
+        NSApplication.shared.applicationIconImage = image
+    }
+}

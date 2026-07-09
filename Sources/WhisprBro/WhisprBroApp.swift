@@ -50,6 +50,7 @@ struct WhisprBroApp: App {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppIconVariant.selected.applyToDock()   // restore the chosen Dock icon
         PipelineController.shared.startup()
     }
 

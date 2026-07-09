@@ -12,7 +12,9 @@ struct SettingsView: View {
     @AppStorage(DictationLanguage.storageKey) private var languageRaw = DictationLanguage.english.rawValue
     @State private var tab: Tab = .models
 
-    enum Tab: String, CaseIterable { case models, shortcuts, autoClean, performance, privacy
+    @AppStorage(AppIconVariant.storageKey) private var iconVariantRaw = AppIconVariant.dark.rawValue
+
+    enum Tab: String, CaseIterable { case models, shortcuts, autoClean, performance, privacy, appearance
         var title: String {
             switch self {
             case .models: "Models"
@@ -20,6 +22,7 @@ struct SettingsView: View {
             case .autoClean: "Auto-Clean"
             case .performance: "Performance"
             case .privacy: "Privacy"
+            case .appearance: "Appearance"
             }
         }
     }
@@ -59,6 +62,7 @@ struct SettingsView: View {
                 case .autoClean: autoCleanContent
                 case .performance: performanceContent
                 case .privacy: privacyContent
+                case .appearance: appearanceContent
                 }
             }
             .padding(24)
@@ -205,6 +209,56 @@ struct SettingsView: View {
                 BrandCaption("Enforced three ways: a CI symbol audit, a runtime connect() tripwire, and a tcpdump zero-packet capture. See docs/OFFLINE.md for the Little Snitch / LuLu deny-all rule.")
             }
         }
+    }
+
+    // MARK: Appearance
+
+    @ViewBuilder private var appearanceContent: some View {
+        section("App icon") {
+            ForEach(AppIconVariant.allCases, id: \.self) { variant in
+                iconRow(variant)
+            }
+            BrandCaption("Switches the live Dock icon (visible while a window like this one is open). The Finder icon is set when the app is built (default Dark; run WHISPR_ICON=cream scripts/make-app.sh to change it).")
+        }
+    }
+
+    private func iconRow(_ variant: AppIconVariant) -> some View {
+        let selected = iconVariantRaw == variant.rawValue
+        return Button {
+            iconVariantRaw = variant.rawValue
+            variant.applyToDock()
+        } label: {
+            HStack(spacing: 14) {
+                iconPreview(variant).frame(width: 46, height: 46)
+                Text(variant.displayName).font(Brand.sans(14, .semibold)).foregroundStyle(Brand.ink)
+                Spacer()
+                Circle()
+                    .strokeBorder(selected ? Brand.ink : Color(hex: 0xB7AC94), lineWidth: selected ? 5 : 1.5)
+                    .background(Circle().fill(Brand.paper))
+                    .frame(width: 17, height: 17)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(selected ? Brand.paper : Brand.raised))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(selected ? Brand.ink : Brand.ink.opacity(0.10), lineWidth: selected ? 1.5 : 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func iconPreview(_ variant: AppIconVariant) -> some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(LinearGradient(
+                    colors: variant == .dark ? [Color(hex: 0x221D16), Color(hex: 0x100D09)]
+                                             : [Color(hex: 0xFBF8F1), Color(hex: 0xEADFC9)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing))
+            EchoWMark(color: variant == .dark ? Brand.paper : Brand.ink).frame(width: 26, height: 17)
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .strokeBorder(Brand.ink.opacity(variant == .cream ? 0.10 : 0), lineWidth: 1))
     }
 
     // MARK: Helpers
