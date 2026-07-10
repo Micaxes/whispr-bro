@@ -843,6 +843,9 @@ final class PipelineController: ObservableObject {
             let historyRaw = verbatimText   // history "raw" = what was said (dictionary-only)
             let historyBundleId = capturedBundleId
             let historyAppName = capturedAppName
+            // Utterance length (transcribed audio) + language, for dashboard WPM/stats.
+            let historyDurationMs = Self.ms(Double(toTranscribe.count) / AudioEngine.targetSampleRate)
+            let historyLanguage = dictationLanguage.code
             inserter.insert(text) { [weak self] in
                 guard let self else { return }
                 timings.insertSeconds = (insertClock.now - insertStart).seconds
@@ -863,7 +866,8 @@ final class PipelineController: ObservableObject {
                         rawText: historyRaw, formattedText: text,
                         audioMs: Self.ms(timings.audioFinalizeSeconds), asrMs: Self.ms(timings.asrSeconds),
                         formatMs: Self.ms(timings.formatSeconds), insertMs: Self.ms(timings.insertSeconds),
-                        totalMs: Self.ms(timings.totalSeconds))
+                        totalMs: Self.ms(timings.totalSeconds),
+                        durationMs: historyDurationMs, language: historyLanguage)
                     Task.detached { await HistoryStore.shared?.save(record) }
                 }
             }
@@ -962,7 +966,8 @@ final class PipelineController: ObservableObject {
                     rawText: historyRaw, formattedText: text,
                     audioMs: Self.ms(timings.audioFinalizeSeconds), asrMs: Self.ms(timings.asrSeconds),
                     formatMs: Self.ms(timings.formatSeconds), insertMs: Self.ms(timings.insertSeconds),
-                    totalMs: Self.ms(timings.totalSeconds))
+                    totalMs: Self.ms(timings.totalSeconds),
+                    durationMs: nil, language: self.dictationLanguage.code)   // command edits: no spoken-WPM
                 Task.detached { await HistoryStore.shared?.save(record) }
             }
         }

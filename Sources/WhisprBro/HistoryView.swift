@@ -64,7 +64,6 @@ final class HistoryViewModel: ObservableObject {
 /// hover. Search / re-insert / copy / clear are unchanged from before.
 struct HistoryView: View {
     @StateObject private var model = HistoryViewModel()
-    @Environment(\.dismiss) private var dismiss
     @State private var confirmingClear = false
 
     // Shared column widths (header + rows).
@@ -74,33 +73,32 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        BrandWindow(title: "History") {
-            VStack(spacing: 0) {
-                BrandSearchField(
-                    placeholder: "Search dictations",
-                    text: Binding(get: { model.query }, set: { model.queryChanged($0) })
-                )
-                .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 12)
+        VStack(spacing: 0) {
+            BrandSearchField(
+                placeholder: "Search dictations",
+                text: Binding(get: { model.query }, set: { model.queryChanged($0) })
+            )
+            .padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 12)
 
-                header
-                Divider().overlay(Brand.ink.opacity(0.08))
+            header
+            Divider().overlay(Brand.ink.opacity(0.08))
 
-                if model.records.isEmpty {
-                    emptyState
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(Array(model.records.enumerated()), id: \.element.id) { i, r in
-                                row(r, even: i.isMultiple(of: 2))
-                            }
+            if model.records.isEmpty {
+                emptyState
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(model.records.enumerated()), id: \.element.id) { i, r in
+                            row(r, even: i.isMultiple(of: 2))
                         }
                     }
                 }
-
-                footer
             }
+
+            footer
         }
-        .frame(minWidth: 640, minHeight: 380)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Brand.raised)
         .onAppear { model.refresh() }
     }
 
@@ -176,7 +174,10 @@ struct HistoryView: View {
     }
 
     private func reinsert(_ text: String) {
-        dismiss()
+        // Yield focus back to the previously-frontmost app (don't close the whole
+        // unified window), then paste. reinsertFromHistory's 0.35s delay +
+        // secure-field guard are unchanged.
+        NSApp.hide(nil)
         PipelineController.shared.reinsertFromHistory(text)
     }
 }

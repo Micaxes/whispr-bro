@@ -7,14 +7,14 @@ import WhisprBroCore
 /// from the previous Form-based version.
 struct SettingsView: View {
     @ObservedObject var pipeline: PipelineController
-    @StateObject private var models = ModelStatusModel()
+    @ObservedObject var models: ModelStatusModel
+    /// Which settings sub-section to show (driven by the unified window sidebar).
+    let tab: Tab
     @AppStorage("asrEngineKind") private var asrKindRaw = AsrEngineKind.parakeet.rawValue
     @AppStorage(DictationLanguage.storageKey) private var languageRaw = DictationLanguage.english.rawValue
-    @State private var tab: Tab = .models
-
     @AppStorage(AppIconVariant.storageKey) private var iconVariantRaw = AppIconVariant.dark.rawValue
 
-    enum Tab: String, CaseIterable { case models, shortcuts, autoClean, performance, privacy, appearance
+    enum Tab: String, CaseIterable, Hashable { case models, shortcuts, autoClean, performance, privacy, appearance
         var title: String {
             switch self {
             case .models: "Models"
@@ -27,33 +27,8 @@ struct SettingsView: View {
         }
     }
 
+    /// The detail pane for one settings sub-section (the sidebar owns navigation).
     var body: some View {
-        BrandWindow(title: "Settings") {
-            HStack(spacing: 0) {
-                rail
-                content
-            }
-        }
-        .frame(width: 660, height: 520)
-        .task { await models.refresh() }
-    }
-
-    private var rail: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            ForEach(Tab.allCases, id: \.self) { t in
-                BrandTab(title: t.title, selected: tab == t) { tab = t }
-            }
-            Spacer(minLength: 12)
-            OfflineCard()
-        }
-        .padding(12)
-        .frame(width: 184)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(Brand.raised)
-        .overlay(alignment: .trailing) { Rectangle().fill(Brand.ink.opacity(0.08)).frame(width: 1) }
-    }
-
-    private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 switch tab {
@@ -68,6 +43,7 @@ struct SettingsView: View {
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(Brand.raised)
     }
 
     // MARK: Models

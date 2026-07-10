@@ -69,6 +69,15 @@ public final class HistoryStore: Sendable {
                 t.column("formattedText")
             }
         }
+        // v2: columns backing the dashboard's honest stats. Both nullable and
+        // backfilled only going forward — old rows stay NULL and are excluded
+        // from duration-dependent metrics (WPM).
+        migrator.registerMigration("v2_stats") { db in
+            try db.alter(table: "record") { t in
+                t.add(column: "durationMs", .integer)   // utterance length → WPM
+                t.add(column: "language", .text)         // dictation language code
+            }
+        }
         return migrator
     }
 
@@ -137,6 +146,96 @@ public final class HistoryStore: Sendable {
         await read { try HistoryRecord.fetchCount($0) } ?? 0
     }
 
+    // MARK: - Dashboard stats
+
+    /// Aggregate dictation statistics. `since` scopes the range-based tiles and
+    /// charts (nil = all time); streak and month-over-month always use the full
+    /// history. Fetches the rows (≤10k) and computes in Swift — word counts,
+    /// medians, and streaks have no clean SQL, and correctness beats a rough
+    /// space-count for a headline number.
+    public func stats(since: Date?) async -> HistoryStats {
+        await read { db in
+            let all = try HistoryRecord.order(Column("createdAt")).fetchAll(db)
+            return Self.computeStats(all, since: since)
+        } ?? HistoryStats()
+    }
+
+    /// Pure, testable core of `stats`. `now`/`calendar` are injectable for tests.
+    static func computeStats(
+        _ all: [HistoryRecord], since: Date?, now: Date = Date(), calendar: Calendar = .current
+    ) -> HistoryStats {
+        func words(_ t: String) -> Int { t.split(whereSeparator: \.isWhitespace).count }
+        func median(_ xs: [Double]) -> Double? {
+            guard !xs.isEmpty else { return nil }
+            let s = xs.sorted(); let m = s.count / 2
+            return s.count.isMultiple(of: 2) ? (s[m - 1] + s[m]) / 2 : s[m]
+        }
+        func medianInt(_ xs: [Int]) -> Int? {
+            guard !xs.isEmpty else { return nil }
+            return xs.sorted()[xs.count / 2]
+        }
+
+        var s = HistoryStats()
+        s.allTimeDictations = all.count
+        let inRange = since.map { lo in all.filter { $0.createdAt >= lo } } ?? all
+
+        s.dictations = inRange.count
+        s.apps = Set(inRange.compactMap { $0.appBundleId }).count
+        s.totalWords = inRange.reduce(0) { $0 + words($1.displayText) }
+        s.wordsCleanedEst = inRange.reduce(0) { $0 + max(0, words($1.rawText) - words($1.displayText)) }
+
+        s.medianWpm = median(inRange.compactMap { r in
+            guard let ms = r.durationMs, ms > 0 else { return nil }
+            let w = words(r.displayText)
+            return w > 0 ? Double(w) / (Double(ms) / 60_000) : nil
+        })
+
+        var byDay: [Date: [HistoryRecord]] = [:]
+        for r in inRange { byDay[calendar.startOfDay(for: r.createdAt), default: []].append(r) }
+        s.perDay = byDay.keys.sorted().map { day in
+            let recs = byDay[day]!
+            return HistoryStats.DayBucket(
+                day: day, dictations: recs.count, words: recs.reduce(0) { $0 + words($1.displayText) },
+                medianTotalMs: medianInt(recs.compactMap { $0.totalMs }),
+                medianAsrMs: medianInt(recs.compactMap { $0.asrMs }))
+        }
+
+        var byCategory: [AppCategory: Int] = [:]
+        for r in inRange {
+            byCategory[AppCategoryResolver.category(bundleId: r.appBundleId), default: 0] += words(r.displayText)
+        }
+        s.perCategory = byCategory.map { HistoryStats.CategoryBucket(category: $0.key, words: $0.value) }
+            .filter { $0.words > 0 }.sorted { $0.words > $1.words }
+
+        // Streak + month-over-month use ALL history, not the selected range.
+        let activeDays = Set(all.map { calendar.startOfDay(for: $0.createdAt) })
+        var cursor = calendar.startOfDay(for: now)
+        if !activeDays.contains(cursor) {   // no dictation today yet → count up to yesterday
+            cursor = calendar.date(byAdding: .day, value: -1, to: cursor) ?? cursor
+        }
+        while activeDays.contains(cursor) {
+            s.currentStreakDays += 1
+            guard let prev = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = prev
+        }
+
+        if let cutoff = calendar.date(byAdding: .day, value: -119, to: calendar.startOfDay(for: now)) {
+            for r in all where r.createdAt >= cutoff {
+                s.recentDayWords[calendar.startOfDay(for: r.createdAt), default: 0] += words(r.displayText)
+            }
+        }
+
+        let thisMonth = calendar.dateComponents([.year, .month], from: now)
+        s.thisMonthWords = all.filter { calendar.dateComponents([.year, .month], from: $0.createdAt) == thisMonth }
+            .reduce(0) { $0 + words($1.displayText) }
+        if let prevMonthDate = calendar.date(byAdding: .month, value: -1, to: now) {
+            let lm = calendar.dateComponents([.year, .month], from: prevMonthDate)
+            s.lastMonthWords = all.filter { calendar.dateComponents([.year, .month], from: $0.createdAt) == lm }
+                .reduce(0) { $0 + words($1.displayText) }
+        }
+        return s
+    }
+
     /// Test hook: the effective `secure_delete` pragma (1 = ON).
     func secureDeleteForTests() async -> Int {
         await read { try Int.fetchOne($0, sql: "PRAGMA secure_delete") ?? -1 } ?? -1
@@ -146,4 +245,41 @@ public final class HistoryStore: Sendable {
         do { return try await dbQueue.read(block) }
         catch { Self.log.error("history read failed: \(error.localizedDescription)"); return nil }
     }
+}
+
+/// Aggregate dictation statistics for the dashboard (spec: unified window).
+public struct HistoryStats: Sendable {
+    public struct DayBucket: Sendable, Identifiable {
+        public let day: Date            // local midnight
+        public let dictations: Int
+        public let words: Int
+        public let medianTotalMs: Int?
+        public let medianAsrMs: Int?
+        public var id: Date { day }
+    }
+    public struct CategoryBucket: Sendable, Identifiable {
+        public let category: AppCategory
+        public let words: Int
+        public var id: String { category.rawValue }
+    }
+
+    public var allTimeDictations = 0    // ignores the range filter (for the empty state)
+    public var dictations = 0
+    public var apps = 0
+    public var totalWords = 0
+    /// Filler / correction words removed by Auto-Clean + the LLM (estimate:
+    /// raw word count − final word count; the LLM also rewrites, not only trims).
+    public var wordsCleanedEst = 0
+    /// Median words-per-minute over dictations that have a recorded duration
+    /// (nil until v2 rows exist).
+    public var medianWpm: Double?
+    public var currentStreakDays = 0
+    public var perDay: [DayBucket] = []
+    public var perCategory: [CategoryBucket] = []
+    /// Words per local day over the last ~120 days from ALL history (for the
+    /// streak heatmap), independent of the selected range.
+    public var recentDayWords: [Date: Int] = [:]
+    public var thisMonthWords = 0
+    public var lastMonthWords = 0
+    public init() {}
 }

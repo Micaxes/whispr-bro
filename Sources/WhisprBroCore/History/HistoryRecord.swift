@@ -17,13 +17,19 @@ public struct HistoryRecord: Codable, Sendable, Equatable, Identifiable,
     public var formatMs: Int?
     public var insertMs: Int?
     public var totalMs: Int?
+    /// Utterance length in ms (captured audio duration), for an honest WPM.
+    /// nil for pre-migration rows and Command-Mode edits (not spoken dictations).
+    public var durationMs: Int?
+    /// Dictation language code (en/it/es), populated going forward (migration v2).
+    public var language: String?
 
     public static let databaseTableName = "record"
 
     public init(
         createdAt: Date, appBundleId: String?, appName: String?,
         rawText: String, formattedText: String?,
-        audioMs: Int?, asrMs: Int?, formatMs: Int?, insertMs: Int?, totalMs: Int?
+        audioMs: Int?, asrMs: Int?, formatMs: Int?, insertMs: Int?, totalMs: Int?,
+        durationMs: Int? = nil, language: String? = nil
     ) {
         self.createdAt = createdAt
         self.appBundleId = appBundleId
@@ -35,6 +41,8 @@ public struct HistoryRecord: Codable, Sendable, Equatable, Identifiable,
         self.formatMs = formatMs
         self.insertMs = insertMs
         self.totalMs = totalMs
+        self.durationMs = durationMs
+        self.language = language
     }
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {

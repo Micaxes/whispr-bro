@@ -18,22 +18,16 @@ struct WhisprBroApp: App {
         // A single, resizable History window. The app is LSUIElement
         // (accessory), so ActivationPolicy promotes it to .regular while the
         // window is open — otherwise the window opens unfocused/behind.
-        Window("History", id: "history") {
-            HistoryView()
-                .onDisappear { ActivationPolicy.deactivateIfNoWindows() }
-        }
-        .windowStyle(.hiddenTitleBar)   // cream full-bleed chrome (brand); OS traffic lights float over the header
-        .windowResizability(.contentMinSize)
-        .defaultSize(width: 820, height: 520)
-
-        // Preferences: model integrity, formatting-model preset, idle unload,
-        // ASR engine, privacy. Same accessory→regular promotion as History.
-        Window("Settings", id: "settings") {
-            SettingsView(pipeline: pipeline)
+        // One unified window: a branded sidebar + a detail pane hosting the
+        // Dashboard, History, and every Settings sub-section. Cream full-bleed
+        // chrome (brand); OS traffic lights float over the echo-w header.
+        Window("whispr-bro", id: "main") {
+            MainWindowView(pipeline: pipeline)
                 .onDisappear { ActivationPolicy.deactivateIfNoWindows() }
         }
         .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
+        .windowResizability(.contentMinSize)
+        .defaultSize(width: 980, height: 660)
     }
 
     /// Menu-bar mark: the echo-w brand glyph (a tinted template image that adapts
