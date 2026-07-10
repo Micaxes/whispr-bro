@@ -1,4 +1,5 @@
 import Accelerate
+import AudioToolbox
 import AVFoundation
 import Foundation
 
@@ -25,6 +26,8 @@ public final class AudioEngine: @unchecked Sendable {
     /// to detect a device/route change and rebuild before the next capture (a
     /// stale tap format asserts inside `engine.start()`).
     private var preparedFormat: AVAudioFormat?
+    /// The input-device UID the current tap was built for; a change re-prepares.
+    private var preparedDeviceUID: String?
     private var capturing = false
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
@@ -50,8 +53,12 @@ public final class AudioEngine: @unchecked Sendable {
     /// indicator — call this at bring-up so `startCapture()` is a fast, warm
     /// start later. Rebuilds automatically if the hardware input format changed.
     public func prepare() throws {
+        // Route to the user-selected input device (empty = system default),
+        // BEFORE reading the format so it reflects that device.
+        applySelectedInputDevice()
+        let selectedUID = MicrophoneManager.selectedUID ?? ""
         let inputFormat = engine.inputNode.outputFormat(forBus: 0)
-        if converter != nil, let prepared = preparedFormat, prepared == inputFormat {
+        if converter != nil, preparedFormat == inputFormat, preparedDeviceUID == selectedUID {
             return // already prepared for this device
         }
         // Rebuild for a fresh/changed device.
@@ -63,11 +70,25 @@ public final class AudioEngine: @unchecked Sendable {
         }
         self.converter = converter
         self.preparedFormat = inputFormat
+        self.preparedDeviceUID = selectedUID
 
         engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] pcmBuffer, _ in
             self?.process(pcmBuffer)
         }
         engine.prepare()
+    }
+
+    /// Point AVAudioEngine's input at the user-selected device via the AUHAL
+    /// `CurrentDevice` property. No-op for "system default" or an unplugged
+    /// device (falls back to the default). Must run before `engine.start()`.
+    private func applySelectedInputDevice() {
+        guard let uid = MicrophoneManager.selectedUID,
+              let deviceID = MicrophoneManager.deviceID(forUID: uid),
+              let audioUnit = engine.inputNode.audioUnit else { return }
+        var dev = deviceID
+        AudioUnitSetProperty(
+            audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+            &dev, UInt32(MemoryLayout<AudioDeviceID>.size))
     }
 
     /// Start the input IOProc — this lights the mic indicator. Fast because

@@ -13,12 +13,16 @@ struct SettingsView: View {
     @AppStorage("asrEngineKind") private var asrKindRaw = AsrEngineKind.parakeet.rawValue
     @AppStorage(DictationLanguage.storageKey) private var languageRaw = DictationLanguage.english.rawValue
     @AppStorage(AppIconVariant.storageKey) private var iconVariantRaw = AppIconVariant.dark.rawValue
+    @AppStorage(MicrophoneManager.storageKey) private var micUIDRaw = ""
+    @AppStorage(AppLanguage.storageKey) private var appLangRaw = AppLanguage.system.rawValue
+    @State private var micDevices: [AudioInputDevice] = []
+    @State private var showShortcuts = false
 
-    enum Tab: String, CaseIterable, Hashable { case models, shortcuts, autoClean, performance, privacy, appearance
+    enum Tab: String, CaseIterable, Hashable { case general, models, autoClean, performance, privacy, appearance
         var title: String {
             switch self {
+            case .general: "General"
             case .models: "Models"
-            case .shortcuts: "Shortcuts"
             case .autoClean: "Auto-Clean"
             case .performance: "Performance"
             case .privacy: "Privacy"
@@ -32,8 +36,8 @@ struct SettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 switch tab {
+                case .general: generalContent
                 case .models: modelsContent
-                case .shortcuts: ShortcutsSettingsView(pipeline: pipeline)
                 case .autoClean: autoCleanContent
                 case .performance: performanceContent
                 case .privacy: privacyContent
@@ -44,6 +48,62 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Brand.raised)
+        .onAppear { micDevices = MicrophoneManager.inputDevices() }
+    }
+
+    // MARK: General
+
+    @ViewBuilder private var generalContent: some View {
+        section("Keyboard shortcuts") {
+            BrandCard {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Keyboard shortcuts").font(Brand.sans(14, .medium)).foregroundStyle(Brand.ink)
+                        Text("Dictate, hands-free, command mode, cancel, paste/copy last.")
+                            .font(Brand.sans(12)).foregroundStyle(Brand.bodyMuted)
+                    }
+                    Spacer()
+                    Button("Edit…") { showShortcuts = true }
+                        .buttonStyle(.plain).font(Brand.sans(12, .medium)).foregroundStyle(Brand.ink)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Brand.raised))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Brand.ink.opacity(0.16), lineWidth: 1))
+                        .popover(isPresented: $showShortcuts, arrowEdge: .trailing) {
+                            ShortcutsSettingsView(pipeline: pipeline)
+                                .padding(20).frame(width: 470).background(Brand.raised)
+                        }
+                }
+            }
+        }
+
+        section("Microphone") {
+            BrandRadioRow(title: "System default", selected: micUIDRaw.isEmpty) { micUIDRaw = "" }
+            ForEach(micDevices) { dev in
+                BrandRadioRow(title: dev.name, selected: micUIDRaw == dev.uid) { micUIDRaw = dev.uid }
+            }
+            BrandCaption("Which input device to record from. Applies on your next dictation.")
+        }
+
+        section("Dictation language") {
+            ForEach(DictationLanguage.allCases, id: \.self) { lang in
+                BrandRadioRow(
+                    title: lang.displayName,
+                    subtitle: lang == .english ? "Fast Parakeet v2 (English only)" : "Multilingual Parakeet v3",
+                    selected: (DictationLanguage(rawValue: languageRaw) ?? .english) == lang
+                ) { languageRaw = lang.rawValue }
+            }
+            BrandCaption(languageNote)
+        }
+
+        section("App language") {
+            ForEach(AppLanguage.allCases) { lang in
+                BrandRadioRow(title: lang.displayName, selected: appLangRaw == lang.rawValue) {
+                    appLangRaw = lang.rawValue
+                    lang.apply()
+                }
+            }
+            BrandCaption("Your preferred language for the app interface. Restart to apply — the UI isn't fully translated yet, so this mainly affects system text and formatting.")
+        }
     }
 
     // MARK: Models
@@ -59,17 +119,6 @@ struct SettingsView: View {
                 ) { pipeline.selectLLM(key: spec.key) }
             }
             BrandCaption("Only installed models can be selected. Qwen2.5 1.5B is the measured default.")
-        }
-
-        section("Dictation language") {
-            ForEach(DictationLanguage.allCases, id: \.self) { lang in
-                BrandRadioRow(
-                    title: lang.displayName,
-                    subtitle: lang == .english ? "Fast Parakeet v2 (English only)" : "Multilingual Parakeet v3",
-                    selected: (DictationLanguage(rawValue: languageRaw) ?? .english) == lang
-                ) { languageRaw = lang.rawValue }
-            }
-            BrandCaption(languageNote)
         }
 
         section("Speech-recognition engine") {

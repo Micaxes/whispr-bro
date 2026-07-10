@@ -73,7 +73,7 @@ struct MainWindowView: View {
 struct SettingsSheet: View {
     @ObservedObject var pipeline: PipelineController
     @StateObject private var models = ModelStatusModel()
-    @State private var tab: SettingsView.Tab = .models
+    @State private var tab: SettingsView.Tab = .general
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
