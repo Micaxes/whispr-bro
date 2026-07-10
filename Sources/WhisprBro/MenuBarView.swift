@@ -78,13 +78,13 @@ struct MenuBarView: View {
             Text("AI cleanup off (model not installed)").font(.caption)
         }
         Divider()
-        Button("Dashboard…") { openMain(.dashboard) }
-        Button("History…") { openMain(.history) }
+        Button("Home…") { openMain(.home) }
+        Button("Insights…") { openMain(.insights) }
         Toggle("Save history", isOn: Binding(
             get: { pipeline.historyEnabled },
             set: { pipeline.historyEnabled = $0 }
         ))
-        Button("Settings…") { openMain(.settings(.models)) }
+        Button("Settings…") { openSettings() }
             .keyboardShortcut(",")
         Button("Edit dictionary & config…") { pipeline.openConfig() }
         Button("Reload config") { pipeline.reloadConfig() }
@@ -99,6 +99,13 @@ struct MenuBarView: View {
     /// Point the unified window at a section, then open/focus it.
     private func openMain(_ item: SidebarItem) {
         NavModel.shared.selection = item
+        ActivationPolicy.activate()
+        openWindow(id: "main")
+    }
+
+    /// Open the window and raise the Settings pop-up over it.
+    private func openSettings() {
+        NavModel.shared.showSettings = true
         ActivationPolicy.activate()
         openWindow(id: "main")
     }

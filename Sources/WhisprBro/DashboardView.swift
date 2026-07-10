@@ -2,50 +2,68 @@ import Charts
 import SwiftUI
 import WhisprBroCore
 
-/// Loads dashboard stats for a selected time range (off the main thread).
+/// Loads all-time dictation stats for Home + Insights.
 @MainActor final class DashboardModel: ObservableObject {
     @Published private(set) var stats = HistoryStats()
-    @Published private(set) var range: TimeRange = .month
     private let store: HistoryStore?
-
     init(store: HistoryStore? = HistoryStore.shared) { self.store = store }
-
-    enum TimeRange: String, CaseIterable, Identifiable {
-        case week = "7 days", month = "30 days", all = "All time"
-        var id: String { rawValue }
-        var since: Date? {
-            switch self {
-            case .week: return Calendar.current.date(byAdding: .day, value: -7, to: Date())
-            case .month: return Calendar.current.date(byAdding: .day, value: -30, to: Date())
-            case .all: return nil
-            }
-        }
-    }
-
     func load() {
-        let store = store, since = range.since
-        Task { self.stats = await store?.stats(since: since) ?? HistoryStats() }
+        let store = store
+        Task { self.stats = await store?.stats(since: nil) ?? HistoryStats() }
     }
-    func select(_ r: TimeRange) { range = r; load() }
 }
 
-struct DashboardView: View {
+// MARK: - Home (summary + history)
+
+/// The landing page: a compact stat strip over the full History list.
+struct HomeView: View {
+    @StateObject private var model = DashboardModel()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Home").font(Brand.sans(22, .bold)).foregroundStyle(Brand.ink)
+                let s = model.stats
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 12) {
+                    StatTile(value: s.totalWords.formatted(), label: "words")
+                    StatTile(value: s.dictations.formatted(), label: "dictations")
+                    StatTile(value: "\(s.currentStreakDays)", label: "day streak")
+                    StatTile(value: s.medianWpm.map { String(Int($0.rounded())) } ?? "—", label: "median WPM")
+                }
+            }
+            .padding(24)
+            Divider().overlay(Brand.ink.opacity(0.08))
+            HistoryView()   // the full search + table + footer, in-page
+        }
+        .background(Brand.raised)
+        .onAppear { model.load() }
+    }
+}
+
+// MARK: - Insights (Wispr "Your Usage" style)
+
+struct InsightsView: View {
     @StateObject private var model = DashboardModel()
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                header
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Insights").font(Brand.sans(22, .bold)).foregroundStyle(Brand.ink)
                 if model.stats.allTimeDictations == 0 {
                     emptyState
                 } else {
-                    tiles
-                    ChartCard(title: "Words over time") { wordsOverTime }
+                    let s = model.stats
                     HStack(alignment: .top, spacing: 14) {
-                        ChartCard(title: "Where you flow") { appUsage }
-                        ChartCard(title: "Activity") { streakHeatmap }
+                        WpmCard(wpm: s.medianWpm)
+                        FixesCard(cleaned: s.wordsCleanedEst)
+                        TotalWordsCard(total: s.totalWords, momPct: momPct)
                     }
-                    ChartCard(title: "Latency · on-device, offline") { latencyTrend }
+                    HStack(alignment: .top, spacing: 14) {
+                        DesktopUsageCard(categories: s.perCategory, apps: s.apps)
+                        StreakCard(current: s.currentStreakDays, longest: s.longestStreakDays, byDay: s.recentDayWords)
+                    }
+                    ChartCard(title: "Words over time") { WordsOverTimeChart(perDay: Array(s.perDay.suffix(30))) }
+                    ChartCard(title: "Latency · on-device, offline") { LatencyChart(perDay: s.perDay) }
                 }
             }
             .padding(24)
@@ -55,90 +73,259 @@ struct DashboardView: View {
         .onAppear { model.load() }
     }
 
-    // MARK: Header
+    private var momPct: Int? {
+        let s = model.stats
+        guard s.lastMonthWords > 0 else { return nil }
+        return Int((Double(s.thisMonthWords - s.lastMonthWords) / Double(s.lastMonthWords) * 100).rounded())
+    }
 
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("Dashboard").font(Brand.sans(22, .bold)).foregroundStyle(Brand.ink)
-            Spacer()
-            HStack(spacing: 6) {
-                ForEach(DashboardModel.TimeRange.allCases) { r in
-                    let on = model.range == r
-                    Button(r.rawValue) { model.select(r) }
-                        .buttonStyle(.plain)
-                        .font(Brand.mono(11, .medium))
-                        .foregroundStyle(on ? Brand.paper : Brand.bodyMuted)
-                        .padding(.horizontal, 11).padding(.vertical, 5)
-                        .background(Capsule().fill(on ? Brand.ink : Brand.raised))
-                        .overlay(Capsule().strokeBorder(Brand.ink.opacity(on ? 0 : 0.12), lineWidth: 1))
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            EchoWMark(color: Brand.mist).frame(width: 52, height: 34)
+            Text("No dictations yet").font(Brand.sans(16, .semibold)).foregroundStyle(Brand.bodyMuted)
+            Text("Hold Right ⌥ and speak — your insights show up here.")
+                .font(Brand.sans(12)).foregroundStyle(Brand.mist)
+        }
+        .frame(maxWidth: .infinity, minHeight: 320)
+    }
+}
+
+// MARK: - Insights cards
+
+private struct WpmCard: View {
+    let wpm: Double?
+    var body: some View {
+        BrandCard {
+            BrandSectionLabel("Words per minute")
+            ZStack {
+                ArcGauge(fraction: (wpm ?? 0) / 160).frame(height: 88)
+                VStack(spacing: 0) {
+                    Text(wpm.map { String(Int($0.rounded())) } ?? "—")
+                        .font(Brand.mono(26, .semibold)).foregroundStyle(Brand.ink)
+                    Text("wpm").font(Brand.mono(9)).foregroundStyle(Brand.mist)
+                }
+                .offset(y: 12)
+            }
+            .frame(maxWidth: .infinity)
+            Text(wpm == nil ? "after a few dictations" : "vs ~40 wpm typing")
+                .font(Brand.mono(9)).foregroundStyle(Brand.metaMuted)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+}
+
+private struct FixesCard: View {
+    let cleaned: Int
+    var body: some View {
+        BrandCard {
+            BrandSectionLabel("Cleaned by Auto-Clean")
+            Text(cleaned.formatted()).font(Brand.mono(34, .semibold)).foregroundStyle(Brand.ink)
+            Rectangle().fill(Brand.ink.opacity(0.08)).frame(height: 1)
+            Text("filler + self-correction words removed (est.)")
+                .font(Brand.sans(12)).foregroundStyle(Brand.bodyMuted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+private struct TotalWordsCard: View {
+    let total: Int
+    let momPct: Int?
+    private var tweets: Int { max(0, total / 46) }
+    var body: some View {
+        BrandCard {
+            HStack {
+                BrandSectionLabel("Total words dictated")
+                Spacer()
+                if let momPct {
+                    Text("\(momPct >= 0 ? "↑" : "↓") \(abs(momPct))% this month")
+                        .font(Brand.mono(9, .medium)).foregroundStyle(Brand.bodyMuted)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Brand.paper))
+                        .overlay(Capsule().strokeBorder(Brand.ink.opacity(0.1), lineWidth: 1))
+                }
+            }
+            Text(total.formatted()).font(Brand.mono(34, .semibold)).foregroundStyle(Brand.ink)
+            Rectangle().fill(Brand.ink.opacity(0.08)).frame(height: 1)
+            Text("≈ \(tweets.formatted()) tweets' worth").font(Brand.sans(13)).foregroundStyle(Brand.bodyMuted)
+        }
+    }
+}
+
+private struct DesktopUsageCard: View {
+    let categories: [HistoryStats.CategoryBucket]
+    let apps: Int
+    private var total: Int { max(1, categories.reduce(0) { $0 + $1.words }) }
+    private var maxWords: Int { max(1, categories.map(\.words).max() ?? 1) }
+
+    var body: some View {
+        BrandCard {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Desktop usage").font(Brand.sans(17, .bold)).foregroundStyle(Brand.ink)
+                Spacer()
+                Text("APPS USED | \(apps)").font(Brand.mono(10, .medium)).tracking(0.6).foregroundStyle(Brand.mist)
+            }
+            ForEach(categories) { c in
+                let frac = Double(c.words) / Double(maxWords)
+                let pct = Int((Double(c.words) / Double(total) * 100).rounded())
+                HStack(spacing: 12) {
+                    Image(systemName: DashboardView.categoryIcon(c.category))
+                        .font(.system(size: 13)).foregroundStyle(Brand.bodyMuted).frame(width: 20)
+                    UsageBar(fraction: frac, percent: pct)
+                    Text("\(c.dictations) \(DashboardView.categoryLabel(c.category).uppercased())")
+                        .font(Brand.mono(10)).foregroundStyle(Brand.bodyMuted).lineLimit(1)
+                    Spacer(minLength: 0)
                 }
             }
         }
     }
+}
 
-    // MARK: Tiles
+/// A horizontal usage bar with the % inside the fill (Wispr "Desktop usage").
+private struct UsageBar: View {
+    let fraction: Double
+    let percent: Int
+    var body: some View {
+        GeometryReader { geo in
+            let w = max(26, fraction * geo.size.width)
+            ZStack(alignment: .leading) {
+                Capsule().fill(Brand.paper)
+                Capsule()
+                    .fill(Brand.ink.opacity(0.4 + 0.5 * fraction))
+                    .frame(width: w)
+                Text("\(percent)%")
+                    .font(Brand.mono(10, .medium))
+                    .foregroundStyle(fraction > 0.22 ? Brand.paper : Brand.bodyMuted)
+                    .padding(.leading, fraction > 0.22 ? 12 : w + 8)
+            }
+        }
+        .frame(width: 150, height: 28)
+    }
+}
 
-    private var tiles: some View {
-        let s = model.stats
-        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 3), spacing: 14) {
-            StatTile(value: s.totalWords.formatted(), label: "words dictated", accent: momDelta)
-            StatTile(value: s.dictations.formatted(), label: "dictations")
-            StatTile(value: "\(s.apps)", label: s.apps == 1 ? "app" : "apps")
-            StatTile(value: "\(s.currentStreakDays)", label: "day streak")
-            StatTile(value: s.wordsCleanedEst.formatted(), label: "words cleaned (est.)")
-            StatTile(value: s.medianWpm.map { String(Int($0.rounded())) } ?? "—",
-                     label: "median WPM",
-                     footnote: s.medianWpm == nil ? "after new dictations" : "vs ~40 typing")
+private struct StreakCard: View {
+    let current: Int
+    let longest: Int
+    let byDay: [Date: Int]
+    var body: some View {
+        BrandCard {
+            HStack(alignment: .firstTextBaseline) {
+                Text("\(current) day streak").font(Brand.sans(17, .bold)).foregroundStyle(Brand.ink)
+                Spacer()
+                Text("LONGEST | \(longest) DAYS").font(Brand.mono(10, .medium)).tracking(0.6).foregroundStyle(Brand.mist)
+            }
+            StreakCalendar(byDay: byDay)
+        }
+    }
+}
+
+// MARK: - Streak calendar (GitHub / Wispr style)
+
+private struct StreakCalendar: View {
+    let byDay: [Date: Int]
+    private let weeks = 18
+    private let cell: CGFloat = 13
+    private let gap: CGFloat = 3
+
+    var body: some View {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: Date())
+        let weekday = cal.component(.weekday, from: today)          // 1 = Sun
+        let sat = cal.date(byAdding: .day, value: 7 - weekday, to: today)!
+        let start = cal.date(byAdding: .day, value: -(weeks * 7 - 1), to: sat)!
+        let maxWords = max(1, byDay.values.max() ?? 1)
+        let columns = (0..<weeks).map { wk in
+            (0..<7).map { row in cal.date(byAdding: .day, value: wk * 7 + row, to: start)! }
+        }
+
+        return VStack(alignment: .leading, spacing: 6) {
+            // Month labels row.
+            HStack(spacing: gap) {
+                Spacer().frame(width: 26)
+                ForEach(0..<weeks, id: \.self) { wk in
+                    Text(monthLabel(columns[wk].first!, previous: wk > 0 ? columns[wk - 1].first! : nil, cal: cal))
+                        .font(Brand.mono(8)).foregroundStyle(Brand.mist)
+                        .fixedSize().frame(width: cell, alignment: .leading)   // overflow, don't wrap
+                }
+            }
+            HStack(alignment: .top, spacing: gap) {
+                // Weekday labels.
+                VStack(alignment: .leading, spacing: gap) {
+                    ForEach(["S", "M", "T", "W", "T", "F", "S"], id: \.self) { d in
+                        Text(d).font(Brand.mono(8)).foregroundStyle(Brand.mist)
+                            .frame(width: 22, height: cell, alignment: .leading)
+                    }
+                }
+                ForEach(0..<weeks, id: \.self) { wk in
+                    VStack(spacing: gap) {
+                        ForEach(0..<7, id: \.self) { row in
+                            let day = columns[wk][row]
+                            cellView(words: day <= today ? (byDay[day] ?? 0) : -1, maxWords: maxWords)
+                        }
+                    }
+                }
+            }
+            // Legend.
+            HStack(spacing: 4) {
+                Text("Less").font(Brand.mono(8)).foregroundStyle(Brand.mist)
+                ForEach([0.06, 0.3, 0.55, 0.85], id: \.self) { op in
+                    RoundedRectangle(cornerRadius: 2).fill(Brand.ink.opacity(op)).frame(width: cell, height: cell)
+                }
+                Text("More").font(Brand.mono(8)).foregroundStyle(Brand.mist)
+            }
+            .padding(.top, 2)
         }
     }
 
-    private var momDelta: String? {
-        let s = model.stats
-        guard s.lastMonthWords > 0 else { return nil }
-        let pct = Int((Double(s.thisMonthWords - s.lastMonthWords) / Double(s.lastMonthWords) * 100).rounded())
-        return (pct >= 0 ? "+\(pct)%" : "\(pct)%") + " vs last mo"
+    @ViewBuilder private func cellView(words: Int, maxWords: Int) -> some View {
+        if words < 0 {
+            RoundedRectangle(cornerRadius: 2).fill(.clear).frame(width: cell, height: cell)  // future day
+        } else {
+            let op: Double = {
+                if words == 0 { return 0.06 }
+                let f = Double(words) / Double(maxWords)
+                if f < 0.25 { return 0.3 } else if f < 0.5 { return 0.5 } else if f < 0.75 { return 0.68 } else { return 0.88 }
+            }()
+            RoundedRectangle(cornerRadius: 2, style: .continuous).fill(Brand.ink.opacity(op))
+                .frame(width: cell, height: cell)
+        }
     }
 
-    // MARK: Charts
+    private func monthLabel(_ day: Date, previous: Date?, cal: Calendar) -> String {
+        let m = cal.component(.month, from: day)
+        if let previous, cal.component(.month, from: previous) == m { return "" }
+        return day.formatted(.dateTime.month(.abbreviated))
+    }
+}
 
-    private var wordsOverTime: some View {
-        Chart(model.stats.perDay) { d in
+// MARK: - Charts
+
+private struct WordsOverTimeChart: View {
+    let perDay: [HistoryStats.DayBucket]
+    var body: some View {
+        Chart(perDay) { d in
             BarMark(x: .value("Day", d.day, unit: .day), y: .value("Words", d.words))
-                .foregroundStyle(Brand.ink)
-                .cornerRadius(3)
+                .foregroundStyle(Brand.ink).cornerRadius(3)
         }
         .frame(height: 150)
         .chartXAxis { brandDateAxis }
         .chartYAxis { brandValueAxis }
     }
+}
 
-    private var appUsage: some View {
-        let cats = model.stats.perCategory
-        return Chart(cats) { c in
-            BarMark(x: .value("Words", c.words), y: .value("App", Self.categoryLabel(c.category)))
-                .foregroundStyle(Brand.ink)
-                .cornerRadius(3)
-        }
-        .chartYScale(domain: cats.map { Self.categoryLabel($0.category) }.reversed())
-        .frame(height: max(90, CGFloat(cats.count) * 34))
-        .chartXAxis { brandValueAxis }
-        .chartYAxis {
-            AxisMarks { _ in
-                AxisValueLabel().font(Brand.sans(11)).foregroundStyle(Brand.bodyMuted)
-            }
-        }
-    }
-
-    private var latencyTrend: some View {
-        let points = model.stats.perDay.flatMap { d -> [LatencyPoint] in
-            var out: [LatencyPoint] = []
-            if let t = d.medianTotalMs { out.append(.init(day: d.day, ms: t, series: "Total")) }
-            if let a = d.medianAsrMs { out.append(.init(day: d.day, ms: a, series: "ASR")) }
+private struct LatencyChart: View {
+    let perDay: [HistoryStats.DayBucket]
+    private struct P: Identifiable { let day: Date; let ms: Int; let s: String; var id: String { "\(s)\(day.timeIntervalSince1970)" } }
+    var body: some View {
+        let points = perDay.flatMap { d -> [P] in
+            var out: [P] = []
+            if let t = d.medianTotalMs { out.append(.init(day: d.day, ms: t, s: "Total")) }
+            if let a = d.medianAsrMs { out.append(.init(day: d.day, ms: a, s: "ASR")) }
             return out
         }
         return Chart(points) { p in
             LineMark(x: .value("Day", p.day, unit: .day), y: .value("ms", p.ms))
-                .foregroundStyle(by: .value("Stage", p.series))
+                .foregroundStyle(by: .value("Stage", p.s))
                 .interpolationMethod(.catmullRom)
                 .lineStyle(StrokeStyle(lineWidth: 2))
         }
@@ -148,63 +335,76 @@ struct DashboardView: View {
         .chartYAxis { brandValueAxis }
         .chartLegend(position: .top, alignment: .leading)
     }
+}
 
-    private struct LatencyPoint: Identifiable {
-        let day: Date; let ms: Int; let series: String
-        var id: String { "\(series)-\(day.timeIntervalSince1970)" }
+private var brandDateAxis: some AxisContent {
+    AxisMarks(values: .automatic(desiredCount: 5)) { _ in
+        AxisGridLine().foregroundStyle(Brand.ink.opacity(0.05))
+        AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+            .font(Brand.mono(9)).foregroundStyle(Brand.mist)
     }
+}
+private var brandValueAxis: some AxisContent {
+    AxisMarks { _ in
+        AxisGridLine().foregroundStyle(Brand.ink.opacity(0.05))
+        AxisValueLabel().font(Brand.mono(9)).foregroundStyle(Brand.mist)
+    }
+}
 
-    private var brandDateAxis: some AxisContent {
-        AxisMarks(values: .automatic(desiredCount: 5)) { _ in
-            AxisGridLine().foregroundStyle(Brand.ink.opacity(0.05))
-            AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-                .font(Brand.mono(9)).foregroundStyle(Brand.mist)
+// MARK: - Shared components
+
+/// A semicircular arc gauge (opens downward), filled left→right by `fraction`.
+private struct ArcGauge: View {
+    let fraction: Double
+    var body: some View {
+        ZStack {
+            ArcShape().stroke(Brand.ink.opacity(0.10), style: .init(lineWidth: 13, lineCap: .round))
+            ArcShape().trim(from: 0, to: max(0.001, min(1, fraction)))
+                .stroke(Brand.ink, style: .init(lineWidth: 13, lineCap: .round))
         }
     }
-    private var brandValueAxis: some AxisContent {
-        AxisMarks { _ in
-            AxisGridLine().foregroundStyle(Brand.ink.opacity(0.05))
-            AxisValueLabel().font(Brand.mono(9)).foregroundStyle(Brand.mist)
+    private struct ArcShape: Shape {
+        func path(in rect: CGRect) -> Path {
+            var p = Path()
+            let r = min(rect.width / 2, rect.height) - 8
+            let c = CGPoint(x: rect.midX, y: rect.maxY - 4)
+            p.addArc(center: c, radius: r, startAngle: .degrees(180), endAngle: .degrees(360), clockwise: false)
+            return p
         }
     }
+}
 
-    // MARK: Streak heatmap (GitHub-style, last 12 weeks)
-
-    private var streakHeatmap: some View {
-        let today = Calendar.current.startOfDay(for: Date())
-        let days = (0..<84).compactMap { Calendar.current.date(byAdding: .day, value: -83 + $0, to: today) }
-        let byDay = model.stats.recentDayWords
-        let maxWords = max(1, byDay.values.max() ?? 1)
-        let weeks = stride(from: 0, to: days.count, by: 7).map { Array(days[$0..<min($0 + 7, days.count)]) }
-        return HStack(alignment: .top, spacing: 3) {
-            ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
-                VStack(spacing: 3) {
-                    ForEach(week, id: \.self) { day in
-                        let words = byDay[day] ?? 0
-                        let level = words == 0 ? 0.05 : 0.28 + 0.72 * Double(words) / Double(maxWords)
-                        RoundedRectangle(cornerRadius: 2, style: .continuous)
-                            .fill(Brand.paper)
-                            .overlay(RoundedRectangle(cornerRadius: 2, style: .continuous).fill(Brand.ink.opacity(level)))
-                            .frame(width: 11, height: 11)
-                    }
-                }
+/// A KPI stat tile: big mono number, mono label, optional accent + footnote.
+struct StatTile: View {
+    let value: String
+    let label: String
+    var accent: String? = nil
+    var footnote: String? = nil
+    var body: some View {
+        BrandCard {
+            Text(value).font(Brand.mono(26, .semibold)).foregroundStyle(Brand.ink)
+            HStack(spacing: 6) {
+                BrandSectionLabel(label)
+                if let accent { Text(accent).font(Brand.mono(9, .medium)).foregroundStyle(Brand.mist) }
             }
+            if let footnote { Text(footnote).font(Brand.mono(9)).foregroundStyle(Brand.metaMuted) }
         }
-        .frame(maxWidth: .infinity, minHeight: 100, alignment: .leading)
     }
+}
 
-    // MARK: Empty state
-
-    private var emptyState: some View {
-        VStack(spacing: 10) {
-            EchoWMark(color: Brand.mist).frame(width: 52, height: 34)
-            Text("No dictations yet").font(Brand.sans(16, .semibold)).foregroundStyle(Brand.bodyMuted)
-            Text("Hold Right ⌥ and speak — your stats show up here.")
-                .font(Brand.sans(12)).foregroundStyle(Brand.mist)
+/// A titled chart/content container (brand card + mono section label).
+struct ChartCard<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        BrandCard {
+            BrandSectionLabel(title)
+            content().padding(.top, 2)
         }
-        .frame(maxWidth: .infinity, minHeight: 320)
     }
+}
 
+enum DashboardView {
     static func categoryLabel(_ c: AppCategory) -> String {
         switch c {
         case .messaging: "Messaging"
@@ -216,39 +416,15 @@ struct DashboardView: View {
         case .unknown: "Other"
         }
     }
-}
-
-/// A KPI stat tile: big mono number, mono label, optional accent chip / footnote.
-private struct StatTile: View {
-    let value: String
-    let label: String
-    var accent: String? = nil
-    var footnote: String? = nil
-
-    var body: some View {
-        BrandCard {
-            Text(value).font(Brand.mono(28, .semibold)).foregroundStyle(Brand.ink)
-            HStack(spacing: 6) {
-                BrandSectionLabel(label)
-                if let accent {
-                    Text(accent).font(Brand.mono(9, .medium)).foregroundStyle(Brand.mist)
-                }
-            }
-            if let footnote {
-                Text(footnote).font(Brand.mono(9)).foregroundStyle(Brand.metaMuted)
-            }
-        }
-    }
-}
-
-/// A titled chart container (brand card + mono section label).
-private struct ChartCard<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: () -> Content
-    var body: some View {
-        BrandCard {
-            BrandSectionLabel(title)
-            content().padding(.top, 2)
+    static func categoryIcon(_ c: AppCategory) -> String {
+        switch c {
+        case .messaging: "bubble.left.and.bubble.right"
+        case .mail: "envelope"
+        case .browser: "globe"
+        case .ide: "chevron.left.forwardslash.chevron.right"
+        case .terminal: "terminal"
+        case .notes: "note.text"
+        case .unknown: "app.dashed"
         }
     }
 }

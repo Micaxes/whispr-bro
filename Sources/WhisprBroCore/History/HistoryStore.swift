@@ -200,11 +200,15 @@ public final class HistoryStore: Sendable {
                 medianAsrMs: medianInt(recs.compactMap { $0.asrMs }))
         }
 
-        var byCategory: [AppCategory: Int] = [:]
+        var byCategory: [AppCategory: (words: Int, count: Int)] = [:]
         for r in inRange {
-            byCategory[AppCategoryResolver.category(bundleId: r.appBundleId), default: 0] += words(r.displayText)
+            let cat = AppCategoryResolver.category(bundleId: r.appBundleId)
+            var e = byCategory[cat] ?? (0, 0)
+            e.words += words(r.displayText); e.count += 1
+            byCategory[cat] = e
         }
-        s.perCategory = byCategory.map { HistoryStats.CategoryBucket(category: $0.key, words: $0.value) }
+        s.perCategory = byCategory
+            .map { HistoryStats.CategoryBucket(category: $0.key, words: $0.value.words, dictations: $0.value.count) }
             .filter { $0.words > 0 }.sorted { $0.words > $1.words }
 
         // Streak + month-over-month use ALL history, not the selected range.
@@ -218,8 +222,21 @@ public final class HistoryStore: Sendable {
             guard let prev = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
             cursor = prev
         }
+        // Longest streak ever: the max run of consecutive active days.
+        var run = 0
+        var prevDay: Date?
+        for d in activeDays.sorted() {
+            if let p = prevDay, let next = calendar.date(byAdding: .day, value: 1, to: p),
+               calendar.isDate(next, inSameDayAs: d) {
+                run += 1
+            } else {
+                run = 1
+            }
+            s.longestStreakDays = max(s.longestStreakDays, run)
+            prevDay = d
+        }
 
-        if let cutoff = calendar.date(byAdding: .day, value: -119, to: calendar.startOfDay(for: now)) {
+        if let cutoff = calendar.date(byAdding: .day, value: -132, to: calendar.startOfDay(for: now)) {
             for r in all where r.createdAt >= cutoff {
                 s.recentDayWords[calendar.startOfDay(for: r.createdAt), default: 0] += words(r.displayText)
             }
@@ -260,6 +277,7 @@ public struct HistoryStats: Sendable {
     public struct CategoryBucket: Sendable, Identifiable {
         public let category: AppCategory
         public let words: Int
+        public let dictations: Int
         public var id: String { category.rawValue }
     }
 
@@ -274,6 +292,7 @@ public struct HistoryStats: Sendable {
     /// (nil until v2 rows exist).
     public var medianWpm: Double?
     public var currentStreakDays = 0
+    public var longestStreakDays = 0
     public var perDay: [DayBucket] = []
     public var perCategory: [CategoryBucket] = []
     /// Words per local day over the last ~120 days from ALL history (for the
