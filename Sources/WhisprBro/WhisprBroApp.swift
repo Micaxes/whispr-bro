@@ -46,6 +46,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppIconVariant.selected.applyToDock()   // restore the chosen Dock icon
         PipelineController.shared.startup()
+        UpdateModel.shared.startup()            // on-by-default, out-of-process update check
     }
 
     /// Defer termination so GPU-backed models are freed first (ggml-metal

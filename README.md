@@ -55,3 +55,14 @@ scripts/make-app.sh                  # build + bundle dist/WhisprBro.app (prints
 - Xcode + `cmake` (to build the llama.cpp xcframework)
 - ~1.5GB disk for the default models (fetched once, checksum-pinned; +465MB for the Italian/Spanish model, the full LLM benchmark set is ~3GB)
 - Permissions: Microphone, Accessibility, Input Monitoring
+
+## Updating
+
+whispr-bro is distributed as a GitHub repo, so a new version is a new [release](https://github.com/Micaxes/whispr-bro/releases). The app can tell you when one is out — **without breaking the zero-network guarantee.**
+
+The trick: the app binary still contains **zero networking code** (the [offline guarantee](docs/OFFLINE.md) is untouched). The version check runs in a **separate process** — [`scripts/whispr-update-check.sh`](scripts/whispr-update-check.sh), bundled at `Contents/Resources/`. Once a day the app spawns that helper; the helper `curl`s GitHub for the latest release tag and writes it to a local `update-state.json`. The app then just **reads that file** and, if the tag is newer than the running build, shows a small "update available" prompt in the bottom-left (and in the menu bar). **Download** opens the release page in your browser — the app never downloads either.
+
+- **On by default,** with a one-time, non-blocking notice on first launch that says so and points to the off switch (*Settings › General › Check for updates automatically*). The first check may run at launch; **turn it off there and no further checks run — with checks off, whispr-bro makes zero network connections.** **Check for updates…** in the menu is always available for a manual one-shot check.
+- **What actually leaves the machine:** only that daily `curl` to `github.com`, revealing your IP exactly as your browser would — and only while enabled. Your audio, transcripts, and history never touch this path.
+- **Honest scope:** the offline audit certifies the *app binary + `llama.framework`*. The updater is a declared, separate, **opt-out (on-by-default)** component that is never linked into the binary and never runs during a dictation cycle — so `audit-offline.sh`, `net-tripwire`, and the tcpdump capture all stay green (verified).
+- **Cutting a release (maintainer):** bump [`VERSION`](VERSION), tag it (e.g. `v0.2.0`), run `scripts/make-app.sh` (it stamps `CFBundleShortVersionString` from `VERSION`), and publish a GitHub release on that tag. Note: builds are self-signed and **not** notarized, so a downloaded `.app` is quarantined — first launch needs *System Settings › Privacy & Security › Open Anyway*.

@@ -10,12 +10,21 @@ external check.
 
 ## Why there's no networking in the first place
 
-- Nothing in the app opens a socket. ASR (Parakeet/CoreML) and formatting
-  (llama.cpp/Metal) are in-process, on-device inference. History is local SQLite.
+- Nothing in the **app binary** opens a socket. ASR (Parakeet/CoreML) and
+  formatting (llama.cpp/Metal) are in-process, on-device inference. History is
+  local SQLite. Your audio, transcripts, and history never leave the machine.
 - The one dependency that *can* touch the network is FluidAudio's model
   **downloader**. We never install models at runtime — `scripts/fetch-models.sh`
   does that once, at install time — and `DownloadUtils.enforceOffline = true` is
   set as defense-in-depth so the downloader is inert even if reached.
+- **The update check is the one deliberate exception**, and it is **not in the
+  app binary**: a separate bundled helper (`scripts/whispr-update-check.sh`, a
+  short-lived `bash`/`curl` process) contacts `github.com` once a day to read the
+  latest release tag. It is **on by default** and reveals only your IP (never any
+  audio/transcript). Turn it off in *Settings › General › Check for updates
+  automatically* to make **zero** network connections. This is why the audit,
+  tripwire, and tcpdump proofs below are scoped to the app binary + a dictation
+  cycle — the updater is separate, opt-out, and never runs during dictation.
 
 ## The three proofs
 
@@ -74,8 +83,14 @@ firewall rule as an independent, always-on check:
 1. Little Snitch → *Rules* → **New Rule…**
 2. Process: `…/WhisprBro.app` (and, for the CLI, the `whispr-bench` binary).
 3. **Deny · Any connection · Any port · Any protocol**, forever.
-4. Save. The app will never prompt because it never connects — if it ever tries,
-   Little Snitch blocks and logs it, giving you a visible tripwire.
+4. Save. The app itself will never prompt because it never connects — if it ever
+   tries, Little Snitch blocks and logs it, giving you a visible tripwire.
+
+> **Note on the updater:** the daily update check runs in a *separate* process
+> (`bash`/`curl`, not `WhisprBro.app`), so a rule scoped to the app won't cover
+> it. If you want truly zero whispr-bro-related traffic, **turn off update checks**
+> in *Settings › General* (then even the helper never runs); optionally also add a
+> deny rule for the bundled `Contents/Resources/whispr-update-check.sh` helper.
 
 **LuLu** (free, open-source)
 1. LuLu → **Rules** → **＋**.

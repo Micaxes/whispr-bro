@@ -14,6 +14,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/dist/WhisprBro.app"
 
+# Single source of truth for the shipped version (compared in-app against the
+# latest GitHub release tag). Keep this in step with the release tag you cut.
+VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION" 2>/dev/null || true)"
+[[ -n "$VERSION" ]] || VERSION="0.0.0"
+echo "version: $VERSION"
+
 echo "building release…"
 swift build -c release --package-path "$ROOT"
 
@@ -95,7 +101,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>__WHISPR_VERSION__</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
@@ -109,6 +115,20 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict>
 </plist>
 PLIST
+
+# Stamp the real version into the plist (the heredoc is quoted, so substitute
+# after the fact — keeps the placeholder out of accidental shell expansion).
+/usr/bin/sed -i '' "s/__WHISPR_VERSION__/$VERSION/" "$APP/Contents/Info.plist"
+
+# The opt-in updater helper — the ONLY networked component, and deliberately NOT
+# part of the app binary (see the script's header + README "Updating"). The app
+# spawns it as a separate process only after the user turns on update checks.
+if [[ -f "$ROOT/scripts/whispr-update-check.sh" ]]; then
+  cp "$ROOT/scripts/whispr-update-check.sh" "$APP/Contents/Resources/whispr-update-check.sh"
+  chmod +x "$APP/Contents/Resources/whispr-update-check.sh"
+else
+  echo "warning: scripts/whispr-update-check.sh missing — in-app update check disabled" >&2
+fi
 
 # Sign with the stable self-signed "whispr-bro dev" identity if present, so
 # TCC grants (Accessibility / Input Monitoring / Microphone) survive rebuilds.

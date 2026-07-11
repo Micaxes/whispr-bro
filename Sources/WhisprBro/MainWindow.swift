@@ -16,6 +16,7 @@ enum SidebarItem: Hashable { case home, insights }
 struct MainWindowView: View {
     @ObservedObject var pipeline: PipelineController
     @ObservedObject private var nav = NavModel.shared
+    @ObservedObject private var update = UpdateModel.shared
 
     var body: some View {
         BrandWindow(title: "whispr·bro") {
@@ -25,6 +26,8 @@ struct MainWindowView: View {
             }
         }
         .frame(minWidth: 940, minHeight: 620)
+        // Claude-style update prompt, anchored bottom-left over the content.
+        .overlay(alignment: .bottomLeading) { UpdatePillOverlay(update: update) }
         .sheet(isPresented: $nav.showSettings) {
             SettingsSheet(pipeline: pipeline)
         }

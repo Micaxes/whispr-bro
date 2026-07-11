@@ -30,6 +30,17 @@
 # frameworks (Foundation/CFNetwork) link dynamically; their internals are out of
 # scope here and are covered by the runtime tcpdump/tripwire proof instead.
 #
+# Declared exception — the updater helper: Contents/Resources/whispr-update-check.sh
+# is an opt-out / on-by-default, out-of-process update checker (see README
+# "Updating"; disable in Settings › General to make zero connections). It is a
+# shell script, not Mach-O and not under Sources/, so it is intentionally NOT
+# scanned here — the guarantee this script certifies is precisely "the app BINARY
+# contains no networking code," and the helper is by design not part of that
+# binary. It runs on a daily throttle when update checks are on (on by default;
+# disable in Settings to make zero connections), and never during a dictation
+# cycle (so the tcpdump capture stays zero-packet). Do not "fix" this by making
+# the app itself perform the check — that WOULD trip Tier 0/1/2.
+#
 # Usage:  scripts/audit-offline.sh [path-to-binary | path-to-.app]
 # With no argument it builds (or reuses) the release WhisprBro binary.
 set -euo pipefail

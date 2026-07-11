@@ -7,6 +7,7 @@ import WhisprBroCore
 /// is the walking skeleton's UI.)
 struct MenuBarView: View {
     @ObservedObject var pipeline: PipelineController
+    @ObservedObject private var update = UpdateModel.shared
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -77,6 +78,11 @@ struct MenuBarView: View {
         } else if case .idle = pipeline.state {
             Text("AI cleanup off (model not installed)").font(.caption)
         }
+        if update.showUpdatePill, case .available(let tag, _) = update.availability {
+            Divider()
+            Button("↑ Update to \(tag) available…") { update.openReleasePage() }
+        }
+
         Divider()
         Button("Home…") { openMain(.home) }
         Button("Insights…") { openMain(.insights) }
@@ -88,6 +94,11 @@ struct MenuBarView: View {
             .keyboardShortcut(",")
         Button("Edit dictionary & config…") { pipeline.openConfig() }
         Button("Reload config") { pipeline.reloadConfig() }
+
+        Divider()
+        Button(update.isChecking ? "Checking for updates…" : "Check for updates…") { update.checkNow() }
+            .disabled(update.isChecking)
+        Text("whispr·bro \(update.currentVersion)").font(.caption)
 
         Text("Hold Right ⌥ to dictate · double-tap to lock hands-free")
         Button("Quit whispr-bro") {

@@ -38,6 +38,12 @@ public enum Paths {
             .appendingPathComponent("silero-vad-unified-256ms-v6.0.0.mlmodelc", isDirectory: true)
     }
 
+    /// Written by the opt-in `whispr-update-check.sh` helper (a separate process),
+    /// read by the app to decide whether to show the "update available" pill.
+    public static var updateStateFile: URL {
+        home.appendingPathComponent("update-state.json")
+    }
+
     public static func ensureDirectories() throws {
         try FileManager.default.createDirectory(at: modelsDir, withIntermediateDirectories: true)
     }

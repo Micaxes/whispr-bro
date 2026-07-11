@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage(AppIconVariant.storageKey) private var iconVariantRaw = AppIconVariant.dark.rawValue
     @AppStorage(MicrophoneManager.storageKey) private var micUIDRaw = ""
     @AppStorage(AppLanguage.storageKey) private var appLangRaw = AppLanguage.system.rawValue
+    @ObservedObject private var update = UpdateModel.shared
     @State private var micDevices: [AudioInputDevice] = []
     @State private var showShortcuts = false
 
@@ -103,6 +104,49 @@ struct SettingsView: View {
                 }
             }
             BrandCaption("Your preferred language for the app interface. Restart to apply — the UI isn't fully translated yet, so this mainly affects system text and formatting.")
+        }
+
+        section("Software update") {
+            BrandCard {
+                Toggle(isOn: Binding(get: { update.autoCheckEnabled }, set: { update.setAutoCheck($0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Check for updates automatically").font(Brand.sans(14)).foregroundStyle(Brand.ink)
+                        Text("Once a day, in the background.").font(Brand.sans(12)).foregroundStyle(Brand.bodyMuted)
+                    }
+                }
+                .toggleStyle(.switch).tint(Brand.ink)
+
+                Rectangle().fill(Brand.ink.opacity(0.06)).frame(height: 1)
+
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Current version").font(Brand.sans(12)).foregroundStyle(Brand.bodyMuted)
+                        Text(updateVersionLine).font(Brand.mono(13)).foregroundStyle(Brand.ink)
+                    }
+                    Spacer()
+                    if case .available = update.availability {
+                        Button("View release") { update.openReleasePage() }
+                            .buttonStyle(.plain).font(Brand.sans(12, .semibold)).foregroundStyle(Brand.paper)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Brand.ink))
+                    }
+                    Button(update.isChecking ? "Checking…" : "Check now") { update.checkNow() }
+                        .buttonStyle(.plain).font(Brand.sans(12, .medium)).foregroundStyle(Brand.ink)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Brand.raised))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Brand.ink.opacity(0.16), lineWidth: 1))
+                        .disabled(update.isChecking)
+                }
+            }
+            BrandCaption("On by default. whispr·bro's app contains zero networking code — when this is on, a separate helper process contacts GitHub once a day just to read the latest release tag. Your audio and transcripts never leave this Mac. New versions download in your browser. Turn it off here to make zero network connections.")
+        }
+    }
+
+    private var updateVersionLine: String {
+        switch update.availability {
+        case .available(let tag, _): "\(update.currentVersion)  ·  \(tag) available"
+        case .upToDate: "\(update.currentVersion)  ·  up to date"
+        case .unknown: update.currentVersion
         }
     }
 
@@ -228,10 +272,10 @@ struct SettingsView: View {
             BrandCard {
                 HStack(spacing: 8) {
                     Circle().fill(Brand.ink).frame(width: 7, height: 7)
-                    Text("Runs entirely on this Mac — no network, no telemetry.")
+                    Text("Your audio & transcripts never leave this Mac — no telemetry.")
                         .font(Brand.sans(14)).foregroundStyle(Brand.ink)
                 }
-                BrandCaption("Enforced three ways: a CI symbol audit, a runtime connect() tripwire, and a tcpdump zero-packet capture. See docs/OFFLINE.md for the Little Snitch / LuLu deny-all rule.")
+                BrandCaption("The app binary contains zero networking code — enforced three ways: a CI symbol audit, a runtime connect() tripwire, and a tcpdump zero-packet capture over a dictation cycle. The one exception is the optional updater (a separate helper, on by default) that checks GitHub once a day — turn it off in General to make zero network connections. See docs/OFFLINE.md for the Little Snitch / LuLu deny-all rule.")
             }
         }
     }
