@@ -236,14 +236,20 @@ struct WhisprBench {
         let groups = ModelManager.verifyAll()
         var allOk = true
         for g in groups {
-            let mark = g.isVerified ? "✅" : (g.isInstalled ? "⚠️" : "❌")
+            // Only a CLEANLY absent optional set (every file missing, or no
+            // manifest AND no install root) is benign. `!isInstalled` would be
+            // too loose: deleting one file makes a non-partialOK group read as
+            // "not installed", which must not mask a hash mismatch next to it.
+            let absentOptional = g.optional && g.isCleanlyAbsent
+            let mark = g.isVerified ? "✅" : (absentOptional ? "➖" : (g.isInstalled ? "⚠️" : "❌"))
             print("\(mark) \(g.displayName): \(g.summary)")
             // A .missing file in a partial-OK group just means that preset isn't
-            // installed — not a fault to list.
-            for f in g.files where f.state != .ok && !(g.partialOK && f.state == .missing) {
+            // installed — not a fault to list. Same for an optional set that
+            // isn't installed at all (multilingual Parakeet v3).
+            for f in g.files where f.state != .ok && !((g.partialOK || absentOptional) && f.state == .missing) {
                 print("     \(f.state.rawValue): \(f.relativePath)")
             }
-            if !g.isVerified && g.id != "llm" { allOk = false } // LLMs are optional presets
+            if !g.isVerified && !absentOptional { allOk = false }
         }
         if allOk {
             print("\nverify: core models OK")

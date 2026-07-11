@@ -41,7 +41,7 @@ Recent additions:
 ```bash
 scripts/build-llama-xcframework.sh   # build llama.cpp -> Vendor/llama.xcframework (needs Xcode + `brew install cmake`)
 scripts/fetch-models.sh              # English ASR (Parakeet v2) + VAD (Silero), ~465MB, checksum-pinned
-scripts/fetch-models.sh multilang    # ALSO fetch Parakeet v3 for Italian/Spanish (~465MB more; optional)
+scripts/fetch-models.sh multilang    # ALSO fetch Parakeet v3 for Italian/Spanish (~465MB more; optional, checksum-pinned)
 scripts/fetch-llm-models.sh          # default auto-edit LLM (Qwen2.5-1.5B, ~940MB); or `all` for the benchmark set
 scripts/make-signing-cert.sh         # one-time: stable self-signed cert so TCC grants survive rebuilds
 scripts/make-app.sh                  # build + bundle dist/WhisprBro.app (prints the `open` command)

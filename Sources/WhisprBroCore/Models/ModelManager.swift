@@ -30,6 +30,13 @@ public enum ModelManager {
         /// files (the LLM presets: a user installs one, not all). A `.missing`
         /// file then means "that preset isn't installed", not "broken".
         public let partialOK: Bool
+        /// True for a model set the app runs fine without (LLM presets, the
+        /// multilingual Parakeet v3). Absence is normal, never a fault — but a
+        /// broken file in an INSTALLED optional set is still a fault.
+        public let optional: Bool
+        /// Whether the group's install root directory exists on disk. Lets a
+        /// missing manifest be told apart from a missing model set.
+        public let rootExists: Bool
 
         private var present: [FileStatus] { files.filter { $0.state != .missing } }
         private var broken: [FileStatus] { files.filter { $0.state == .mismatch || $0.state == .unreadable } }
@@ -47,8 +54,21 @@ public enum ModelManager {
             return partialOK ? !present.isEmpty : files.allSatisfy { $0.state == .ok }
         }
 
+        /// Benign absence: the set simply isn't installed. With a manifest,
+        /// that means EVERY listed file is missing — a partial or corrupt
+        /// install is NOT absence (a deleted file must never mask a hash
+        /// mismatch from the verify gate). Without a manifest, the install
+        /// root must not exist either: a manifest lost while model files sit
+        /// on disk means integrity can no longer be checked, which IS a fault.
+        public var isCleanlyAbsent: Bool {
+            manifestFound ? (!files.isEmpty && files.allSatisfy { $0.state == .missing })
+                          : !rootExists
+        }
+
         public var summary: String {
-            guard manifestFound else { return "manifest missing" }
+            guard manifestFound else {
+                return optional && !rootExists ? "not installed (optional)" : "manifest missing"
+            }
             let missing = files.filter { $0.state == .missing }.count
             let bad = files.filter { $0.state == .mismatch }.count
             let unreadable = files.filter { $0.state == .unreadable }.count
@@ -58,11 +78,14 @@ public enum ModelManager {
                 if bad > 0 || unreadable > 0 { return "\(installed) installed, \(bad + unreadable) failing" }
                 return "\(installed) of \(files.count) installed, verified"
             }
-            if missing == files.count { return "not installed" }
-            if missing > 0 { return "\(missing) file(s) missing" }
-            if unreadable > 0 { return "\(unreadable) file(s) unreadable" }
-            if bad > 0 { return "\(bad) file(s) hash mismatch" }
-            return "verified (\(files.count) files)"
+            if missing == files.count { return optional ? "not installed (optional)" : "not installed" }
+            // Report every problem class at once: "1 file(s) missing" alone
+            // must not hide a simultaneous hash mismatch.
+            var parts: [String] = []
+            if missing > 0 { parts.append("\(missing) file(s) missing") }
+            if unreadable > 0 { parts.append("\(unreadable) file(s) unreadable") }
+            if bad > 0 { parts.append("\(bad) file(s) hash mismatch") }
+            return parts.isEmpty ? "verified (\(files.count) files)" : parts.joined(separator: ", ")
         }
     }
 
@@ -75,6 +98,7 @@ public enum ModelManager {
         let manifest: String
         let root: URL
         var partialOK: Bool = false
+        var optional: Bool = false
     }
 
     private static let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "models")
@@ -83,13 +107,17 @@ public enum ModelManager {
         [
             Group(id: "asr", displayName: "Parakeet ASR (CoreML)",
                   manifest: "models.sha256",
-                  root: Paths.modelsDir.appendingPathComponent("parakeet-tdt-0.6b-v2", isDirectory: true)),
+                  root: Paths.modelsDir.appendingPathComponent(ParakeetEngine.Version.v2.folderName, isDirectory: true)),
+            Group(id: "asr-v3", displayName: "Parakeet ASR v3 — multilingual (CoreML)",
+                  manifest: "models-v3.sha256",
+                  root: Paths.modelsDir.appendingPathComponent(ParakeetEngine.Version.v3.folderName, isDirectory: true),
+                  optional: true),
             Group(id: "vad", displayName: "Silero VAD (CoreML)",
                   manifest: "models-vad.sha256",
                   root: Paths.modelsDir.appendingPathComponent("silero-vad", isDirectory: true)),
             Group(id: "llm", displayName: "Formatting LLMs (GGUF)",
                   manifest: "models-llm.sha256",
-                  root: Paths.llmDir, partialOK: true),
+                  root: Paths.llmDir, partialOK: true, optional: true),
         ]
     }
 
@@ -101,12 +129,14 @@ public enum ModelManager {
     }
 
     private static func verify(_ group: Group, manifestsDir: URL?) -> GroupStatus {
+        let rootExists = FileManager.default.fileExists(atPath: group.root.path)
         guard let manifestsDir,
               let expected = parseManifest(manifestsDir.appendingPathComponent(group.manifest))
         else {
             return GroupStatus(id: group.id, displayName: group.displayName,
                                rootDir: group.root, files: [], manifestFound: false,
-                               partialOK: group.partialOK)
+                               partialOK: group.partialOK, optional: group.optional,
+                               rootExists: rootExists)
         }
         let files: [FileStatus] = expected.map { (rel, hash) in
             let url = group.root.appendingPathComponent(rel)
@@ -122,7 +152,8 @@ public enum ModelManager {
         }
         return GroupStatus(id: group.id, displayName: group.displayName,
                            rootDir: group.root, files: files, manifestFound: true,
-                           partialOK: group.partialOK)
+                           partialOK: group.partialOK, optional: group.optional,
+                           rootExists: rootExists)
     }
 
     /// Parse a `shasum -a 256` manifest: `<hex>␠␠<relative/path>` per line.

@@ -61,13 +61,61 @@ final class ModelManagerTests: XCTestCase {
         XCTAssertFalse(g.isVerified)
     }
 
-    private func group(_ states: [ModelManager.FileState], partialOK: Bool) -> ModelManager.GroupStatus {
+    private func group(_ states: [ModelManager.FileState], partialOK: Bool,
+                       optional: Bool = false, manifestFound: Bool = true,
+                       rootExists: Bool = true) -> ModelManager.GroupStatus {
         let files = states.enumerated().map {
             ModelManager.FileStatus(relativePath: "f\($0.offset).bin", state: $0.element)
         }
         return ModelManager.GroupStatus(
             id: "g", displayName: "G", rootDir: URL(fileURLWithPath: "/tmp"),
-            files: files, manifestFound: true, partialOK: partialOK)
+            files: files, manifestFound: manifestFound, partialOK: partialOK,
+            optional: optional, rootExists: rootExists)
+    }
+
+    func testOptionalGroupAbsentSummarySaysOptional() {
+        // The multilingual Parakeet v3 set: absence is normal, and the summary
+        // must say so, so the Settings pane doesn't read like a fault.
+        let g = group([.missing, .missing], partialOK: false, optional: true)
+        XCTAssertFalse(g.isInstalled)
+        XCTAssertFalse(g.isVerified)
+        XCTAssertTrue(g.isCleanlyAbsent)
+        XCTAssertEqual(g.summary, "not installed (optional)")
+    }
+
+    func testOptionalGroupInstalledButBrokenIsAFault() {
+        // `whispr-bench verify` gates on `!isVerified && !(optional && isCleanlyAbsent)`:
+        // an installed-but-corrupt optional set must NOT slip through that guard.
+        let g = group([.ok, .mismatch], partialOK: false, optional: true)
+        XCTAssertTrue(g.isInstalled)
+        XCTAssertFalse(g.isVerified)
+        XCTAssertFalse(g.isCleanlyAbsent)
+    }
+
+    func testMissingFileMustNotMaskAMismatchInAnOptionalGroup() {
+        // Reproduced gate escape: 1 mismatch + 1 missing made isInstalled false,
+        // which an `optional && !isInstalled` guard read as benign absence —
+        // deleting one file would have un-gated arbitrary tampering.
+        let g = group([.mismatch, .missing], partialOK: false, optional: true)
+        XCTAssertFalse(g.isCleanlyAbsent)
+        XCTAssertFalse(g.isVerified)
+        XCTAssertTrue(g.summary.contains("missing"))
+        XCTAssertTrue(g.summary.contains("mismatch")) // both reported, not just missing
+    }
+
+    func testLostManifestWithInstalledRootIsAFaultNotAbsence() {
+        // A manifest lost while the model sits on disk means integrity can no
+        // longer be checked — that must gate, and must not read as "not installed".
+        let lost = group([], partialOK: false, optional: true,
+                         manifestFound: false, rootExists: true)
+        XCTAssertFalse(lost.isCleanlyAbsent)
+        XCTAssertEqual(lost.summary, "manifest missing")
+
+        // No manifest AND no install root = genuinely never installed: benign.
+        let never = group([], partialOK: false, optional: true,
+                          manifestFound: false, rootExists: false)
+        XCTAssertTrue(never.isCleanlyAbsent)
+        XCTAssertEqual(never.summary, "not installed (optional)")
     }
 
     func testPartialOKGroupVerifiesWithOnlyOnePresetInstalled() {

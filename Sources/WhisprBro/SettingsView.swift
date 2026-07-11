@@ -201,10 +201,14 @@ struct SettingsView: View {
     }
 
     private func integrityRow(_ g: ModelManager.GroupStatus) -> some View {
-        HStack(spacing: 10) {
+        // Neutral only for a cleanly absent OPTIONAL set. Anything else that
+        // isn't verified — including a partial/corrupt install that reads as
+        // "not installed" — is a fault the row must not soften.
+        let absentOptional = g.optional && g.isCleanlyAbsent
+        return HStack(spacing: 10) {
             ZStack {
-                Circle().fill(g.isVerified ? Brand.ink : (g.isInstalled ? Brand.signal : Brand.mist))
-                Image(systemName: g.isVerified ? "checkmark" : (g.isInstalled ? "exclamationmark" : "minus"))
+                Circle().fill(g.isVerified ? Brand.ink : (absentOptional ? Brand.mist : Brand.signal))
+                Image(systemName: g.isVerified ? "checkmark" : (absentOptional ? "minus" : "exclamationmark"))
                     .font(.system(size: 9, weight: .bold)).foregroundStyle(Brand.paper)
             }
             .frame(width: 16, height: 16)

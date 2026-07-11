@@ -66,7 +66,7 @@ fi
 # Per-file with a warning so a missing manifest degrades gracefully (ModelManager
 # handles it) instead of aborting the whole build under `set -euo pipefail`.
 mkdir -p "$APP/Contents/Resources/manifests"
-for m in models.sha256 models-vad.sha256 models-llm.sha256; do
+for m in models.sha256 models-v3.sha256 models-vad.sha256 models-llm.sha256; do
   if [[ -f "$ROOT/scripts/$m" ]]; then
     cp "$ROOT/scripts/$m" "$APP/Contents/Resources/manifests/"
   else
