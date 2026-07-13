@@ -3,10 +3,17 @@ import Foundation
 
 /// Continuously-fed sample buffer with a bounded pre-roll (spec §4 AudioEngine).
 ///
-/// While idle it keeps only the most recent `preRollSampleCount` samples, so
-/// speech that starts just *before* the hotkey press is not lost. When an
-/// utterance begins, the pre-roll is spliced onto the front of the utterance
-/// and all subsequent samples accumulate until `endUtterance()`.
+/// While capture runs outside an utterance it keeps only the most recent
+/// `preRollSampleCount` samples, so speech that starts just *before* the
+/// hotkey press is not lost. When an utterance begins, the pre-roll is spliced
+/// onto the front of the utterance and all subsequent samples accumulate until
+/// `endUtterance()`.
+///
+/// The pre-roll only fills while capture is ALREADY running before
+/// `beginUtterance()`. Both apps today run mic-on-demand — `startCapture()`
+/// immediately followed by `beginUtterance()` — so the pre-roll is always
+/// empty; the splice becomes live only in a capture-already-running session
+/// mode (the future iOS keyboard/session story).
 ///
 /// Thread-safe: `append` is called from the audio render thread; begin/end
 /// from the main thread.
@@ -41,7 +48,10 @@ public final class PreRollBuffer: @unchecked Sendable {
     }
 
     /// Snapshot the pre-roll as the start of a new utterance and switch to
-    /// accumulation mode.
+    /// accumulation mode. The snapshot is EMPTY unless capture was already
+    /// running before this call: under mic-on-demand (both apps today —
+    /// `startCapture()` then `beginUtterance()` back-to-back) no samples have
+    /// arrived yet, so the utterance is exactly the audio from this point on.
     public func beginUtterance() {
         lock.lock()
         defer { lock.unlock() }

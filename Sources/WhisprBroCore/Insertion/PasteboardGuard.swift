@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 
 extension NSPasteboard.PasteboardType {
@@ -102,3 +103,4 @@ public final class PasteboardGuard {
         pasteboard.writeObjects(pasteboardItems)
     }
 }
+#endif

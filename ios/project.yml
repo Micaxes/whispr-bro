@@ -1,0 +1,103 @@
+# XcodeGen spec for the iOS app + custom keyboard extension (issue #13 rev 2,
+# phases i0/i1). SwiftPM can't produce iOS .app/.appex bundles, so the iOS side
+# wraps the same package (..) in a generated Xcode project. The .xcodeproj is
+# gitignored — scripts/make-ios-app.sh regenerates it on every build.
+#
+# Build-setting file paths (INFOPLIST_FILE, CODE_SIGN_ENTITLEMENTS) are
+# relative to SRCROOT, which is this directory.
+name: WhisprBro-iOS
+
+options:
+  bundleIdPrefix: com.micaxes
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+packages:
+  WhisprBro:
+    path: ..
+
+settings:
+  base:
+    # Empty by default so unsigned compile-checks work on any machine (CI runs
+    # with CODE_SIGNING_ALLOWED=NO); export WHISPR_DEV_TEAM for signed builds.
+    DEVELOPMENT_TEAM: "$(WHISPR_DEV_TEAM)"
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  WhisprBroiOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: ../Sources/WhisprBroiOS
+      # Brand fonts (Archivo + IBM Plex Mono), registered via UIAppFonts in
+      # App-Info.plist. Group (not folder reference) so the .ttf files land at
+      # the bundle root, matching the bare filenames the plist lists.
+      - path: ../Fonts
+        type: group
+        buildPhase: resources
+      # On-device models staged by `scripts/make-ios-app.sh release` (Parakeet
+      # v2 + Silero VAD). Folder reference → ships as a Models/ dir in the
+      # bundle; optional because compile-check builds don't stage it.
+      - path: Models
+        type: folder
+        buildPhase: resources
+        optional: true
+      # Live Activity contract shared with the widget extension: ActivityKit
+      # matches an app-requested activity to the widget's configuration by
+      # this attributes type, so the ONE definition compiles into both
+      # targets (issue #13 review amendment 1 / row-8 probe).
+      - path: ../Sources/WhisprBroWidgets/DictationActivityAttributes.swift
+    dependencies:
+      - package: WhisprBro
+        product: WhisprBroCore
+      - target: WhisprBroKeyboard
+        embed: true
+      - target: WhisprBroWidgets
+        embed: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.micaxes.whispr-bro.ios
+        INFOPLIST_FILE: App-Info.plist
+        CODE_SIGN_ENTITLEMENTS: App.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+
+  WhisprBroKeyboard:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../Sources/WhisprBroKeyboard
+    dependencies:
+      - package: WhisprBro
+        product: WhisprBroCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.micaxes.whispr-bro.ios.keyboard
+        INFOPLIST_FILE: Keyboard-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Keyboard.entitlements
+
+  # WidgetKit extension hosting the dictation Live Activity — the platform
+  # contract for StartDictationIntent (an AudioRecordingIntent recording is
+  # stopped by the system without a visible Live Activity). Deliberately
+  # dependency-free: it renders shared attributes only, so it adds zero
+  # networking surface to audit.
+  WhisprBroWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ../Sources/WhisprBroWidgets
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.micaxes.whispr-bro.ios.widgets
+        INFOPLIST_FILE: Widgets-Info.plist
+        CODE_SIGN_ENTITLEMENTS: Widgets.entitlements
+
+# Explicit scheme: xcodegen only writes schemes that are declared, and
+# `xcodebuild -scheme WhisprBroiOS` (make-ios-app.sh, CI) needs one on disk.
+schemes:
+  WhisprBroiOS:
+    build:
+      targets:
+        WhisprBroiOS: all
+    archive:
+      config: Release

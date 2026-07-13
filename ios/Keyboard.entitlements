@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Same group as the host app — the keyboard reads models + settings from
+	     the shared container (needs Full Access, see Keyboard-Info.plist). -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.micaxes.whispr-bro</string>
+	</array>
+</dict>
+</plist>

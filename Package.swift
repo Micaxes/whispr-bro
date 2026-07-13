@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "whispr-bro",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "WhisprBroCore", targets: ["WhisprBroCore"]),
         .executable(name: "WhisprBro", targets: ["WhisprBro"]),
@@ -19,6 +19,8 @@ let package = Package(
     targets: [
         // Prebuilt by scripts/build-llama-xcframework.sh (pinned llama.cpp tag,
         // Metal embedded). Gitignored; run that script once before building.
+        // Single macos-arm64 slice — linked on macOS only; iOS phase i1 ships
+        // no LLM (LlamaCppEngine is `#if canImport(llama)`-guarded).
         .binaryTarget(name: "llama", path: "Vendor/llama.xcframework"),
         .target(
             name: "WhisprBroCore",
@@ -26,7 +28,7 @@ let package = Package(
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "Collections", package: "swift-collections"),
                 .product(name: "GRDB", package: "GRDB.swift"),
-                "llama",
+                .byName(name: "llama", condition: .when(platforms: [.macOS])),
             ]
         ),
         .executableTarget(

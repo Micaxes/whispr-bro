@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import CoreGraphics
 
@@ -235,3 +236,4 @@ public final class HotkeyManager: @unchecked Sendable {
         DispatchQueue.main.async { self.onAction?(action, phase) }
     }
 }
+#endif

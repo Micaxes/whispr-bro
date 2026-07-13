@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Same shared container as the app + keyboard (issue #13 §App Group):
+	     the widget renders Live Activity state today and reads shared session
+	     state in later phases. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.micaxes.whispr-bro</string>
+	</array>
+</dict>
+</plist>

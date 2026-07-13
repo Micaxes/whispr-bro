@@ -1,3 +1,4 @@
+#if os(macOS)
 import CoreGraphics
 import Foundation
 
@@ -173,3 +174,4 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
         }
     }
 }
+#endif

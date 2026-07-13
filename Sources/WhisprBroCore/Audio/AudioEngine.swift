@@ -53,16 +53,32 @@ public final class AudioEngine: @unchecked Sendable {
     /// indicator — call this at bring-up so `startCapture()` is a fast, warm
     /// start later. Rebuilds automatically if the hardware input format changed.
     public func prepare() throws {
+        #if os(macOS)
         // Route to the user-selected input device (empty = system default),
         // BEFORE reading the format so it reflects that device.
         applySelectedInputDevice()
         let selectedUID = MicrophoneManager.selectedUID ?? ""
+        #else
+        // Category before reading the input format so the node reflects the
+        // record route. Setting the category does not light the mic indicator;
+        // activation waits for `startCapture()` (on-demand, as on macOS).
+        try AVAudioSession.sharedInstance().setCategory(
+            .record, mode: .default, options: [.allowBluetoothHFP])
+        let selectedUID = "" // iOS routes via the session, not a device UID
+        #endif
         let inputFormat = engine.inputNode.outputFormat(forBus: 0)
         if converter != nil, preparedFormat == inputFormat, preparedDeviceUID == selectedUID {
             return // already prepared for this device
         }
         // Rebuild for a fresh/changed device.
         if converter != nil { engine.inputNode.removeTap(onBus: 0) }
+        #if os(iOS)
+        // Until the session is activated the input node reports a 0 Hz format
+        // (always, in the simulator). Not an error at bring-up: leave the
+        // converter unbuilt and let `startCapture()` re-prepare right after
+        // activation, when the real route format is known.
+        guard inputFormat.sampleRate > 0 else { return }
+        #endif
         guard inputFormat.sampleRate > 0,
               let converter = AVAudioConverter(from: inputFormat, to: targetFormat)
         else {
@@ -78,6 +94,7 @@ public final class AudioEngine: @unchecked Sendable {
         engine.prepare()
     }
 
+    #if os(macOS)
     /// Point AVAudioEngine's input at the user-selected device via the AUHAL
     /// `CurrentDevice` property. No-op for "system default" or an unplugged
     /// device (falls back to the default). Must run before `engine.start()`.
@@ -90,13 +107,22 @@ public final class AudioEngine: @unchecked Sendable {
             audioUnit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
             &dev, UInt32(MemoryLayout<AudioDeviceID>.size))
     }
+    #endif
 
     /// Start the input IOProc — this lights the mic indicator. Fast because
     /// `prepare()` already did the expensive setup. Safe to call repeatedly;
     /// re-prepares first if the input device/format changed.
     public func startCapture() throws {
         guard !capturing else { return }
+        #if os(iOS)
+        // Session activation is what lights the iOS mic indicator — kept here
+        // (not in `prepare()`) to mirror the macOS on-demand semantics. It must
+        // precede `prepare()`: the input node only reports its real route
+        // format once the session is active, and the converter needs it.
+        try AVAudioSession.sharedInstance().setActive(true)
+        #endif
         try prepare()
+        guard converter != nil else { throw WhisprError.audioConverterUnavailable }
         try engine.start()
         capturing = true
     }
@@ -107,6 +133,10 @@ public final class AudioEngine: @unchecked Sendable {
     public func stopCapture() {
         guard capturing else { return }
         engine.stop()
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(
+            false, options: .notifyOthersOnDeactivation)
+        #endif
         capturing = false
     }
 
@@ -115,6 +145,10 @@ public final class AudioEngine: @unchecked Sendable {
     public func stop() {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        #if os(iOS)
+        try? AVAudioSession.sharedInstance().setActive(
+            false, options: .notifyOthersOnDeactivation)
+        #endif
         converter = nil
         preparedFormat = nil
         capturing = false
@@ -128,6 +162,9 @@ public final class AudioEngine: @unchecked Sendable {
 
     // MARK: - Utterance
 
+    /// Begin an utterance at the current point in the stream. The spliced
+    /// pre-roll is empty unless capture was already running before this call —
+    /// see `PreRollBuffer.beginUtterance`.
     public func beginUtterance() {
         buffer.beginUtterance()
     }
@@ -137,7 +174,8 @@ public final class AudioEngine: @unchecked Sendable {
         buffer.drainNewSamples()
     }
 
-    /// Returns 16kHz mono samples: pre-roll + everything captured during the hold.
+    /// Returns 16kHz mono samples: pre-roll (empty under mic-on-demand — see
+    /// `PreRollBuffer.beginUtterance`) + everything captured during the hold.
     public func endUtterance() -> [Float] {
         buffer.endUtterance()
     }

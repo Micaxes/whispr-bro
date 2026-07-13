@@ -1,3 +1,4 @@
+#if canImport(llama)
 import Foundation
 import llama
 
@@ -375,3 +376,4 @@ public actor LlamaCppEngine {
         return llama_decode(ctx, batch) == 0
     }
 }
+#endif

@@ -39,9 +39,10 @@ final class PipelineController: ObservableObject {
     }
 
     /// Holds shorter than this are treated as taps (used to arm the double-tap
-    /// lock), not dictations — so they never transcribe. The pre-roll makes
-    /// every utterance exceed the ASR sample floor, so tap-vs-hold must be
-    /// decided by DURATION, not sample count.
+    /// lock), not dictations — so they never transcribe. Decided by DURATION,
+    /// not sample count, so the gate cannot shift with how much audio the
+    /// buffer holds (today none before the press — the pre-roll is always
+    /// empty under mic-on-demand; see `PreRollBuffer.beginUtterance`).
     private static let minHoldToTranscribe: TimeInterval = 0.22
     /// Safety cap so a locked recording (or any stuck state) can't run forever.
     private static let maxRecordingSeconds: TimeInterval = 90
@@ -67,6 +68,10 @@ final class PipelineController: ObservableObject {
     private let asr: AsrEngine = ParakeetEngine(
         modelsDir: Paths.modelsDir, version: DictationLanguage.selected.parakeetVersion)
     private let vad = VadGate(modelFile: Paths.vadModelFile)
+    /// The shared post-capture text pipeline (trim → ASR → dictionary →
+    /// Auto-Clean gating → formatter) — core-owned so the gating rules can
+    /// never drift from iOS. Lazy: built from `asr` after property init.
+    private lazy var pipeline = DictationPipeline(asr: asr)
     private var styleRules = StyleRules()
     private var config = AppConfig()
     private var dictionary = DictionaryEngine(rules: [])
@@ -618,6 +623,10 @@ final class PipelineController: ObservableObject {
             return
         }
         state = .recording
+        // beginUtterance() right after startCapture(): under mic-on-demand the
+        // pre-roll is EMPTY (capture just started, nothing buffered — see
+        // PreRollBuffer.beginUtterance), so the utterance is exactly the hold
+        // audio.
         audio.beginUtterance()
         hud.show(.recording)
         startMaxRecordingCap()
@@ -745,10 +754,7 @@ final class PipelineController: ObservableObject {
     private func transcribeAndInsert(
         _ samples: [Float], wasLocked: Bool, trim: Bool, timings: StageTimings
     ) async {
-        var timings = timings
         do {
-            let audioForAsr = trim ? await vad.trim(samples) : samples
-            let toTranscribe = audioForAsr.count >= asr.minimumSamples ? audioForAsr : samples
             // Snapshot the dictionary/cleanup so a menu reload mid-dictation
             // can't make the substitution, the LLM allowlist, and the filler
             // pre-pass disagree.
@@ -756,69 +762,53 @@ final class PipelineController: ObservableObject {
             let stripper = fillerStripper
             let level = cleanupLevel
             let verbatimRegister = isVerbatimRegister(capturedCategory)
-            let (result, asrSeconds) = try await measured { try await asr.transcribe(toTranscribe) }
-            timings.asrSeconds = asrSeconds
-            // Personal dictionary ONCE, BEFORE formatting (so the LLM sees
-            // corrected terms) and in raw mode alike (spec §4 DictionaryEngine).
-            // Applied once, not before+after: a second pass would duplicate
-            // words for an expanding rule (target contains its source).
-            // `verbatimText` is the TRUE verbatim form (dictionary only) — it is
-            // what history stores as rawText.
-            let verbatimText = dict.apply(
-                result.text.trimmingCharacters(in: .whitespacesAndNewlines))
-            guard !verbatimText.isEmpty else {
+            // Formatter-stage inputs, read in prepareFormatter — after the
+            // strip, right before the measured format — the same instant the
+            // pre-extraction inline code read them.
+            var raw = false
+            var resolveCorr = false
+            var style = ""
+            // The shared samples → final-text path (trim → ASR → dictionary
+            // ONCE → Auto-Clean gating → formatter) lives in DictationPipeline
+            // so the gating rules can never drift from iOS. nil = ASR produced
+            // no text.
+            guard let outcome = try await pipeline.run(
+                samples,
+                trim: trim ? { await self.vad.trim($0) } : nil,
+                dictionary: dict, stripper: stripper,
+                level: level, verbatimRegister: verbatimRegister,
+                timings: timings,
+                prepareFormatter: {
+                    raw = self.rawMode
+                    // Self-correction: level=standard on a non-verbatim register.
+                    // The LLM path handles it; format() also uses this to keep a
+                    // short correction off the fast path (§5c).
+                    resolveCorr = level == .standard && !verbatimRegister
+                    style = self.effectiveStyleDirective(
+                        dictionary: dict, resolveCorrections: resolveCorr)
+                    // Reload the model first if it was unloaded to save idle
+                    // memory (~1–2s, only after a long idle gap, only on the LLM
+                    // path) — outside the measured format stage, so formatMs
+                    // never absorbs a reload.
+                    if !raw { await self.ensureLLMLoaded() }
+                },
+                format: { cleaned in
+                    // Stage 2: LLM auto-edit (or rule-based fast path / raw
+                    // fallback). Formatter.format never throws — a dictation
+                    // always lands.
+                    await self.formatter.format(
+                        cleaned, rawMode: raw, styleDirective: style,
+                        preserveCasingFor: dict.lowercasedTargets,
+                        resolveCorrections: resolveCorr,
+                        language: self.dictationLanguage)
+                })
+            else {
                 state = .idle
                 hud.hide()
                 return
             }
-
-            // Auto-Clean level "Off (verbatim)" = the WHOLE stage is a no-op:
-            // no filler strip AND no LLM — paste the dictionary-corrected text
-            // exactly as spoken (spec §7a / AC #6). Verbatim registers
-            // (ide/terminal/notes) only skip the Auto-Clean strip+correction;
-            // they still run the LLM with their own verbatim-ish directive.
-            let stageOff = level == .verbatim
-
-            // Stage 1 (task-014 §5a): deterministic filler strip on ALL routes,
-            // unless the stage is off / verbatim register. Protects dictionary
-            // targets from a case-insensitive filler collision.
-            let stripFillers = !stageOff && !verbatimRegister
-            let stripped = stripFillers
-                ? stripper.strip(verbatimText, protecting: dict.lowercasedTargets)
-                : verbatimText
-            // Never emit empty: an all-filler utterance ("um", or "um, uh." which
-            // strips to bare punctuation) falls back to the verbatim text so a
-            // dictation always lands (spec §3.2 #17). "Meaningful" = has a letter
-            // or digit, so a punctuation-only residue also triggers the fallback.
-            let hasContent = stripped.contains { $0.isLetter || $0.isNumber }
-            let cleanedInput = hasContent ? stripped : verbatimText
-
-            let text: String
-            let formatSeconds: Double
-            if stageOff {
-                // Byte-identical to the dictionary-corrected text — proven no-op.
-                text = verbatimText
-                formatSeconds = 0
-            } else {
-                // Stage 2: LLM auto-edit (or rule-based fast path / raw fallback).
-                // Formatter.format never throws — a dictation always lands.
-                let raw = rawMode
-                // Self-correction: level=standard on a non-verbatim register. The
-                // LLM path handles it; format() also uses this to keep a short
-                // correction off the fast path (§5c).
-                let resolveCorr = level == .standard && !verbatimRegister
-                let style = effectiveStyleDirective(dictionary: dict, resolveCorrections: resolveCorr)
-                // Reload the model first if it was unloaded to save idle memory
-                // (~1–2s, only after a long idle gap, only on the LLM path).
-                if !raw { await ensureLLMLoaded() }
-                (text, formatSeconds) = await measured {
-                    await formatter.format(cleanedInput, rawMode: raw, styleDirective: style,
-                                           preserveCasingFor: dict.lowercasedTargets,
-                                           resolveCorrections: resolveCorr,
-                                           language: dictationLanguage)
-                }
-            }
-            timings.formatSeconds = formatSeconds
+            var timings = outcome.timings
+            let text = outcome.text
 
             // Authoritative secure check (system + focused AX field). Focus may
             // have moved to a password field while we transcribed. This is off
@@ -840,11 +830,12 @@ final class PipelineController: ObservableObject {
             hud.update(.inserting)
             let insertClock = ContinuousClock()
             let insertStart = insertClock.now
-            let historyRaw = verbatimText   // history "raw" = what was said (dictionary-only)
+            let historyRaw = outcome.verbatimText   // history "raw" = what was said (dictionary-only)
             let historyBundleId = capturedBundleId
             let historyAppName = capturedAppName
             // Utterance length (transcribed audio) + language, for dashboard WPM/stats.
-            let historyDurationMs = Self.ms(Double(toTranscribe.count) / AudioEngine.targetSampleRate)
+            let historyDurationMs = Self.ms(
+                Double(outcome.transcribedSampleCount) / AudioEngine.targetSampleRate)
             let historyLanguage = dictationLanguage.code
             inserter.insert(text) { [weak self] in
                 guard let self else { return }

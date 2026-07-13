@@ -1,3 +1,4 @@
+#if os(macOS)
 import ApplicationServices
 
 /// Shared access to the system-wide focused UI element (spec §4). Used by
@@ -47,3 +48,4 @@ public enum AXFocus {
         return (ref as! AXUIElement)
     }
 }
+#endif

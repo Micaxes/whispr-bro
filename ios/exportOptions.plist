@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- TestFlight upload options for `scripts/make-ios-app.sh release`.
+	     teamID is a placeholder until Apple Developer enrollment lands (phase
+	     i0); the release script stamps WHISPR_DEV_TEAM over SET_ME at export
+	     time, so this file stays account-free in git. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>upload</string>
+	<key>teamID</key>
+	<string>SET_ME</string>
+	<!-- make-ios-app.sh stamps a deterministic CFBundleVersion (git commit
+	     count + UTC timestamp) into the archive; without this key the export
+	     defaults to letting Xcode rewrite build numbers against ASC. -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	<key>uploadSymbols</key>
+	<true/>
+</dict>
+</plist>

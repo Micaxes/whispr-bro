@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 
 /// Reads the app being dictated into, to drive per-app formatting style
@@ -20,3 +21,4 @@ public enum ContextService {
         return (app?.bundleIdentifier, app?.localizedName)
     }
 }
+#endif

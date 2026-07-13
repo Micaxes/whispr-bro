@@ -22,6 +22,9 @@ public actor TextFormatter {
         public init() {}
     }
 
+    // The LLM path exists only where the llama xcframework is linked (macOS).
+    // Platforms without it (iOS phase i1) use the static rule-based helpers.
+    #if canImport(llama)
     private let engine: LlamaCppEngine
     private let config: Config
     private let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "formatter")
@@ -89,16 +92,11 @@ public actor TextFormatter {
             return Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor)
         }
     }
+    #endif
 
-    // MARK: - Rule-based fallback
-
-    /// Minimal deterministic cleanup for the fast path / fallback: capitalize
-    /// the first letter and ensure terminal punctuation. Parakeet already
-    /// emits most punctuation, so this is intentionally conservative.
-    /// `preserveCasingFor` = lowercased dictionary targets whose casing must
-    /// survive (so a leading "npm" isn't up-cased to "Npm").
     // MARK: - Command Mode
 
+    #if canImport(llama)
     /// Voice-edit `selection` per the spoken `instruction`. Returns the edited
     /// text, or nil on empty/failed/timed-out generation — so the caller leaves
     /// the user's selection untouched rather than replacing it with garbage.
@@ -127,8 +125,16 @@ public actor TextFormatter {
             return nil
         }
     }
+    #endif
 
-    static func ruleBasedCleanup(_ text: String, preserveCasingFor: Set<String> = []) -> String {
+    // MARK: - Rule-based fallback
+
+    /// Minimal deterministic cleanup for the fast path / fallback: capitalize
+    /// the first letter and ensure terminal punctuation. Parakeet already
+    /// emits most punctuation, so this is intentionally conservative.
+    /// `preserveCasingFor` = lowercased dictionary targets whose casing must
+    /// survive (so a leading "npm" isn't up-cased to "Npm").
+    public static func ruleBasedCleanup(_ text: String, preserveCasingFor: Set<String> = []) -> String {
         var s = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = s.first else { return s }
         // Capitalize the first letter — UNLESS the leading token already carries

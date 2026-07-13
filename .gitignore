@@ -17,3 +17,9 @@ DerivedData/
 # generated audio fixtures (scripts/make-fixture.sh) and compiled tripwire
 /Fixtures/
 scripts/net-tripwire.dylib
+
+# iOS: xcodegen output + models staged by `make-ios-app.sh release`
+ios/WhisprBro-iOS.xcodeproj
+ios/*.xcodeproj
+ios/Models/
+ios/build/

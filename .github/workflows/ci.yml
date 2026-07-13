@@ -12,6 +12,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Uncomment together with the testflight-upload job below. Weekly because
+  # TestFlight builds expire 90 days after UPLOAD and identical
+  # CFBundleVersions do not reset the clock (docs/IOS-DISTRIBUTION.md) — a
+  # standing cadence keeps two approved builds overlapping at all times.
+  # schedule:
+  #   - cron: '0 6 * * 1'   # Mondays 06:00 UTC
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -69,6 +75,78 @@ jobs:
           else
             echo "FAIL: llama.framework binary not found to audit" >&2; exit 1
           fi
+
+  # iOS port (issue #13, phases i0/i1): prove the generated project and the
+  # app + keyboard targets keep compiling. Unsigned generic-device build via
+  # make-ios-app.sh's default mode — no Apple account, profiles, or models.
+  ios-build:
+    runs-on: macos-26   # pinned: first image with the iOS 26.x SDK
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.5.app || true
+
+      # No-op when the image already bundles the iOS platform; downloads it
+      # when the pinned Xcode shipped without one (build fails otherwise with
+      # "iOS 26.x is not installed").
+      - name: Ensure iOS platform
+        run: sudo xcodebuild -downloadPlatform iOS
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: iOS compile-check (unsigned)
+        run: bash scripts/make-ios-app.sh
+
+  # TestFlight upload — INERT until Apple Developer enrollment lands (issue
+  # #13 phase i0). Uncomment this job plus the `schedule` trigger above once
+  # these repo secrets exist:
+  #   WHISPR_ASC_KEY_P8     contents of the App Store Connect API .p8 key
+  #   WHISPR_ASC_KEY_ID     ASC key id
+  #   WHISPR_ASC_ISSUER_ID  ASC issuer id
+  #   WHISPR_DEV_TEAM       Apple Team ID
+  # Cadence + channel rules live in docs/IOS-DISTRIBUTION.md: every upload
+  # carries a fresh CFBundleVersion (make-ios-app.sh stamps it), smoke-test
+  # internal before promoting to the external friends group, keep two
+  # approved builds overlapping inside the 90-day expiry window.
+  # NOTE: enabling `schedule` also runs the other push/PR jobs weekly; add
+  # `if:` guards to them if that churn is unwanted.
+  # testflight-upload:
+  #   if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+  #   runs-on: macos-26
+  #   timeout-minutes: 90
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0   # build number derives from `git rev-list --count HEAD`
+  #     - name: Select Xcode
+  #       run: sudo xcode-select -s /Applications/Xcode_26.5.app || true
+  #     - name: Ensure iOS platform
+  #       run: sudo xcodebuild -downloadPlatform iOS
+  #     - name: Install xcodegen
+  #       run: brew install xcodegen
+  #     # Bundle the on-device models (Parakeet v2 + Silero VAD, ~465MB) —
+  #     # a release archive without them is a broken build for testers.
+  #     - name: Cache models
+  #       uses: actions/cache@v4
+  #       with:
+  #         path: ~/Library/Application Support/whispr-bro/models
+  #         key: ios-models-${{ hashFiles('scripts/models.sha256', 'scripts/models-vad.sha256') }}
+  #     - name: Fetch models
+  #       run: scripts/fetch-models.sh
+  #     - name: Write ASC API key
+  #       run: umask 077 && printf '%s' "$WHISPR_ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+  #       env:
+  #         WHISPR_ASC_KEY_P8: ${{ secrets.WHISPR_ASC_KEY_P8 }}
+  #     - name: Archive + upload to TestFlight
+  #       run: bash scripts/make-ios-app.sh release
+  #       env:
+  #         WHISPR_DEV_TEAM: ${{ secrets.WHISPR_DEV_TEAM }}
+  #         WHISPR_ASC_KEY_PATH: ${{ runner.temp }}/AuthKey.p8
+  #         WHISPR_ASC_KEY_ID: ${{ secrets.WHISPR_ASC_KEY_ID }}
+  #         WHISPR_ASC_ISSUER_ID: ${{ secrets.WHISPR_ASC_ISSUER_ID }}
 
   # Runtime offline + latency proofs. GitHub-hosted runners have no GPU/models,
   # so this is a manual, self-hosted job a maintainer triggers on an Apple

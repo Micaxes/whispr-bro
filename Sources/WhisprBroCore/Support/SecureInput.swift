@@ -1,3 +1,4 @@
+#if os(macOS)
 import ApplicationServices
 import Carbon.HIToolbox
 
@@ -50,3 +51,4 @@ public enum SecureInput {
         isSystemSecureInputActive || isFocusedFieldSecure
     }
 }
+#endif
