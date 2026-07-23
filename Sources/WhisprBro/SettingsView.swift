@@ -69,9 +69,8 @@ struct SettingsView: View {
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Brand.raised))
                         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Brand.ink.opacity(0.16), lineWidth: 1))
-                        .popover(isPresented: $showShortcuts, arrowEdge: .trailing) {
-                            ShortcutsSettingsView(pipeline: pipeline)
-                                .padding(20).frame(width: 470).background(Brand.raised)
+                        .sheet(isPresented: $showShortcuts) {
+                            ShortcutsSheet(pipeline: pipeline)
                         }
                 }
             }

@@ -93,7 +93,46 @@ struct HotkeyRecorderButton: View {
     }
 }
 
-/// The "Shortcuts" settings tab content (branded), embedded in SettingsView:
+/// The Shortcuts editor as its own modal page — same chrome as SettingsSheet
+/// (echo-w title bar + close on paper, cream content). Esc closes the sheet,
+/// EXCEPT while a keycap is recording: the recorder's local monitor swallows
+/// it first, so Esc then only cancels the recording.
+struct ShortcutsSheet: View {
+    @ObservedObject var pipeline: PipelineController
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                HStack(spacing: 8) {
+                    EchoWMark(color: Brand.ink).frame(width: 22, height: 15)
+                    Text("Keyboard shortcuts").font(Brand.sans(13, .semibold)).foregroundStyle(Brand.ink)
+                }
+                HStack {
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundStyle(Brand.mist)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.trailing, 14)
+            }
+            .frame(height: 44)
+            .frame(maxWidth: .infinity)
+            .background(Brand.paper)
+            .overlay(alignment: .bottom) { Rectangle().fill(Brand.ink.opacity(0.08)).frame(height: 1) }
+
+            ScrollView {
+                ShortcutsSettingsView(pipeline: pipeline)
+                    .padding(24)
+            }
+            .background(Brand.raised)
+        }
+        .frame(width: 560, height: 540)
+    }
+}
+
+/// The "Shortcuts" settings tab content (branded), embedded in ShortcutsSheet:
 /// one row per action with a recorder keycap.
 struct ShortcutsSettingsView: View {
     @ObservedObject var pipeline: PipelineController
