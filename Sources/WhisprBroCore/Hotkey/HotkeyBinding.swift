@@ -159,11 +159,12 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
     public static let storageKey = "hotkeys"
 
     /// The persisted config, or the defaults. A decode failure (schema drift)
-    /// falls back to defaults rather than leaving the app with no hotkeys.
+    /// falls back to defaults rather than leaving the app with no hotkeys. An
+    /// EMPTY config is legitimate (the user deleted every shortcut in
+    /// Settings) and must load as-is — falling back would resurrect them.
     public static func load() -> HotkeyConfig {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
-              let cfg = try? JSONDecoder().decode(HotkeyConfig.self, from: data),
-              !cfg.entries.isEmpty
+              let cfg = try? JSONDecoder().decode(HotkeyConfig.self, from: data)
         else { return defaults }
         return cfg
     }

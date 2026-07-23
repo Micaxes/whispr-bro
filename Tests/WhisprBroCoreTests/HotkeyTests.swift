@@ -97,4 +97,27 @@ final class HotkeyTests: XCTestCase {
         // Hands-free (a different action on the same physical key) is untouched.
         XCTAssertEqual(cfg.bindings(for: .handsFree).first?.keyCode, 61)
     }
+
+    // MARK: Load semantics (Settings delete support)
+
+    /// A deliberately emptied config (every shortcut deleted in Settings) must
+    /// survive a relaunch — load() may only fall back to defaults on a missing
+    /// or undecodable blob, never on a valid-but-empty one.
+    func testLoadPreservesDeliberatelyEmptyConfig() throws {
+        let defaults = UserDefaults.standard
+        let saved = defaults.data(forKey: HotkeyConfig.storageKey)
+        defer { // restore whatever the host had, even on assert failure
+            if let saved { defaults.set(saved, forKey: HotkeyConfig.storageKey) }
+            else { defaults.removeObject(forKey: HotkeyConfig.storageKey) }
+        }
+
+        HotkeyConfig(entries: []).save()
+        XCTAssertTrue(HotkeyConfig.load().entries.isEmpty)
+
+        defaults.set(Data("not json".utf8), forKey: HotkeyConfig.storageKey)
+        XCTAssertEqual(HotkeyConfig.load(), .defaults)
+
+        defaults.removeObject(forKey: HotkeyConfig.storageKey)
+        XCTAssertEqual(HotkeyConfig.load(), .defaults)
+    }
 }

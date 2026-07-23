@@ -40,6 +40,13 @@ struct HotkeyRecorderButton: View {
     private func startRecording() {
         recording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            // Bare Esc cancels the recording instead of becoming the binding
+            // (standard recorder behavior); a chord like ⌘Esc still records.
+            if event.type == .keyDown, event.keyCode == 53,
+               Self.cgFlags(event.modifierFlags) & HotkeyBinding.careMask == 0 {
+                stopRecording()
+                return nil
+            }
             if let b = capture(event) { onCapture(b); stopRecording() }
             return nil   // swallow while recording so keys don't leak into the UI
         }
@@ -109,6 +116,17 @@ struct ShortcutsSettingsView: View {
                                 action: action,
                                 binding: config.bindings(for: action).first
                             ) { update(action, $0) }
+                            // Slot is always reserved so the keycaps stay
+                            // column-aligned across bound/unbound rows.
+                            Button { remove(action) } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 13, weight: .medium))
+                                    .foregroundStyle(Brand.mist)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove this shortcut")
+                            .opacity(config.bindings(for: action).isEmpty ? 0 : 1)
+                            .disabled(config.bindings(for: action).isEmpty)
                         }
                         .padding(.horizontal, 8).padding(.vertical, 8)
                     }
@@ -127,6 +145,12 @@ struct ShortcutsSettingsView: View {
         var entries = config.entries.filter { $0.action != action }
         entries.append(.init(action, binding))
         config = HotkeyConfig(entries: entries)
+        config.save()
+        pipeline.reloadHotkeys(config)
+    }
+
+    private func remove(_ action: HotkeyAction) {
+        config = HotkeyConfig(entries: config.entries.filter { $0.action != action })
         config.save()
         pipeline.reloadHotkeys(config)
     }
