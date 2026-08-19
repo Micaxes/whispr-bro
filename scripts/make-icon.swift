@@ -41,22 +41,26 @@ let echo: [(pts: [(CGFloat, CGFloat)], width: CGFloat, opacity: CGFloat)] = [
     ([(16, 33), (34, 61), (52, 39), (72, 65), (92, 26)], 9.0, 1.0),
 ]
 
-func drawIcon(_ side: CGFloat) -> CGImage {
+/// `fullBleed` renders the iOS form: the artwork fills the whole square with
+/// no inset, no squircle clip, and no alpha — iOS masks the tile itself, and
+/// pre-rounded corners would show as black wedges on the Home Screen.
+func drawIcon(_ side: CGFloat, fullBleed: Bool = false) -> CGImage {
     let cs = CGColorSpaceCreateDeviceRGB()
     let ctx = CGContext(
         data: nil, width: Int(side), height: Int(side), bitsPerComponent: 8, bytesPerRow: 0,
-        space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        space: cs,
+        bitmapInfo: (fullBleed ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast).rawValue)!
     ctx.translateBy(x: 0, y: side); ctx.scaleBy(x: 1, y: -1) // top-left origin
     ctx.setAllowsAntialiasing(true); ctx.interpolationQuality = .high
 
-    let inset = side * 0.098
+    let inset = fullBleed ? 0 : side * 0.098
     let s = side - 2 * inset
     let radius = s * 0.2237
     let rect = CGRect(x: inset, y: inset, width: s, height: s)
     let squircle = CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
 
     ctx.saveGState()
-    ctx.addPath(squircle); ctx.clip()
+    if !fullBleed { ctx.addPath(squircle); ctx.clip() }
     let base = CGGradient(colorsSpace: cs, colors: [rgb(style.gradTop), rgb(style.gradBottom)] as CFArray, locations: [0, 1])!
     ctx.drawLinearGradient(base, start: CGPoint(x: inset, y: inset),
                            end: CGPoint(x: side - inset, y: side - inset), options: [])
@@ -65,7 +69,7 @@ func drawIcon(_ side: CGFloat) -> CGImage {
                            end: CGPoint(x: inset, y: inset + s * 0.4), options: [])
     ctx.restoreGState()
 
-    if let border = style.border {
+    if let border = style.border, !fullBleed {
         ctx.addPath(squircle)
         ctx.setStrokeColor(border); ctx.setLineWidth(max(1, side * 0.004)); ctx.strokePath()
     }
@@ -99,12 +103,19 @@ func writePNG(_ image: CGImage, _ path: String) {
     }
 }
 
-let variants: [(String, CGFloat)] = [
-    ("icon_16x16", 16), ("icon_16x16@2x", 32),
-    ("icon_32x32", 32), ("icon_32x32@2x", 64),
-    ("icon_128x128", 128), ("icon_128x128@2x", 256),
-    ("icon_256x256", 256), ("icon_256x256@2x", 512),
-    ("icon_512x512", 512), ("icon_512x512@2x", 1024),
-]
-for (name, s) in variants { writePNG(drawIcon(s), "\(outDir)/\(name).png") }
-print("rendered \(variant) icon (\(variants.count) sizes) into \(outDir)")
+// A .png output path = one 1024px full-bleed iOS icon; a directory = the
+// macOS .iconset family.
+if outDir.hasSuffix(".png") {
+    writePNG(drawIcon(1024, fullBleed: true), outDir)
+    print("rendered \(variant) iOS icon (1024px full-bleed) at \(outDir)")
+} else {
+    let variants: [(String, CGFloat)] = [
+        ("icon_16x16", 16), ("icon_16x16@2x", 32),
+        ("icon_32x32", 32), ("icon_32x32@2x", 64),
+        ("icon_128x128", 128), ("icon_128x128@2x", 256),
+        ("icon_256x256", 256), ("icon_256x256@2x", 512),
+        ("icon_512x512", 512), ("icon_512x512@2x", 1024),
+    ]
+    for (name, s) in variants { writePNG(drawIcon(s), "\(outDir)/\(name).png") }
+    print("rendered \(variant) icon (\(variants.count) sizes) into \(outDir)")
+}

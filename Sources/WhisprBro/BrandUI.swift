@@ -19,20 +19,56 @@ struct BrandWindow<Content: View>: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background(Brand.raised)
+        // The hidden native titlebar still reports a top safe-area inset;
+        // without claiming it, the whole chrome starts ~28pt down — the bar
+        // reads twice as tall and the branding sits below the traffic lights
+        // instead of level with them.
+        .ignoresSafeArea(.container, edges: .top)
     }
+}
+
+/// Makes the ENTIRE custom title bar drag the window. With `.hiddenTitleBar`
+/// only the invisible native strip is draggable by default, so grabbing the
+/// visible bar (logo included) did nothing. An NSView background forwards
+/// mouse-down to `performDrag`; double-click performs the standard titlebar
+/// action from System Settings (zoom, or minimize/none per the user pref).
+/// macOS 14 floor — `WindowDragGesture` would need 15+.
+private struct WindowDragArea: NSViewRepresentable {
+    final class DragView: NSView {
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            if event.clickCount == 2 {
+                switch UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") {
+                case "Minimize": window.performMiniaturize(nil)
+                case "None": break
+                default: window.performZoom(nil)
+                }
+                return
+            }
+            window.performDrag(with: event)
+        }
+    }
+    func makeNSView(context: Context) -> NSView { DragView() }
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 struct BrandTitleBar: View {
     let title: String
     var body: some View {
         ZStack {
-            HStack(spacing: 11) {
-                EchoWMark(color: Brand.ink).frame(width: 34, height: 22)
-                Text(title).font(Brand.sans(15, .semibold)).foregroundStyle(Brand.ink)
+            HStack(spacing: 8) {
+                EchoWMark(color: Brand.ink).frame(width: 26, height: 17)
+                Text(title).font(Brand.sans(14, .semibold)).foregroundStyle(Brand.ink)
             }
+            // Static branding must never claim the click — the drag area
+            // below the SwiftUI content handles it, logo included.
+            .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 54)
+        // Native-titlebar height, so the bar reads compact and the branding
+        // sits level with the traffic lights.
+        .frame(height: 28)
+        .background(WindowDragArea())
         .background(Brand.paper)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Brand.ink.opacity(0.08)).frame(height: 1)

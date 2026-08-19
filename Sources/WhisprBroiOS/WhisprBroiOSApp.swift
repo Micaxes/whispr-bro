@@ -31,12 +31,21 @@ struct WhisprBroiOSApp: App {
     private var root: some View {
         RootView()
             .environmentObject(model)
-            .onAppear { model.startup() }
+            .onAppear {
+                model.startup()
+                // Session IPC bring-up beside the model's: republishes a
+                // fresh `.off` status page so the keyboard never trusts a
+                // jetsamed predecessor's leftovers (issue #13 P4).
+                AppModel.session.startup()
+            }
     }
 }
 
 struct RootView: View {
     @EnvironmentObject private var model: DictationModel
+    @ObservedObject private var session = AppModel.session
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showSettingsFromLink = false
     #if DEBUG || SPIKE
     @State private var spikeArmed = false
     #endif
@@ -49,15 +58,40 @@ struct RootView: View {
                 .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
         .tint(Brand.ink)
-        #if DEBUG || SPIKE
-        // whisprbro://spike arms spike mode for the NEXT launch — the
-        // no-terminal entry a release gate build on device needs (see
-        // SpikeMode).
+        // The whisprbro:// router. session/start is the keyboard mic key's
+        // arming deep link (issue #13 P4): foreground-start the continuous-
+        // capture session and show the brand card until the user swipes back.
+        // settings is the keyboard toolbar's gear key: present the same
+        // Settings sheet HomeView offers.
         .onOpenURL { url in
-            guard url.host() == "spike" else { return }
-            SpikeMode.arm()
-            spikeArmed = true
+            switch url.host() {
+            case "session":
+                guard url.path() == "/start" else { return }
+                session.startSession()
+            case "settings":
+                showSettingsFromLink = true
+            #if DEBUG || SPIKE
+            case "spike":
+                // whisprbro://spike arms spike mode for the NEXT launch — the
+                // no-terminal entry a release gate build on device needs (see
+                // SpikeMode).
+                SpikeMode.arm()
+                spikeArmed = true
+            #endif
+            default:
+                break
+            }
         }
+        .fullScreenCover(isPresented: $session.showSessionCard) {
+            SessionCardView(session: session)
+        }
+        // Same presentation as HomeView's gear: SettingsSheet inherits the
+        // environmentObject model from this view.
+        .sheet(isPresented: $showSettingsFromLink) { SettingsSheet() }
+        .onChange(of: scenePhase) { _, newPhase in
+            session.scenePhaseChanged(newPhase)
+        }
+        #if DEBUG || SPIKE
         .alert("Spike mode armed", isPresented: $spikeArmed) {
             Button("OK") {}
         } message: {

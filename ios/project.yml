@@ -30,6 +30,10 @@ targets:
     platform: iOS
     sources:
       - path: ../Sources/WhisprBroiOS
+      # App icon (brand echo-w tile, rendered full-bleed by
+      # `swift scripts/make-icon.swift <path>.png dark` from the same geometry
+      # as the macOS .icns — brand doc §4).
+      - path: Assets.xcassets
       # Brand fonts (Archivo + IBM Plex Mono), registered via UIAppFonts in
       # App-Info.plist. Group (not folder reference) so the .ttf files land at
       # the bundle root, matching the bare filenames the plist lists.
@@ -51,6 +55,8 @@ targets:
     dependencies:
       - package: WhisprBro
         product: WhisprBroCore
+      - package: WhisprBro
+        product: WhisprBroIPC
       - target: WhisprBroKeyboard
         embed: true
       - target: WhisprBroWidgets
@@ -61,15 +67,19 @@ targets:
         INFOPLIST_FILE: App-Info.plist
         CODE_SIGN_ENTITLEMENTS: App.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   WhisprBroKeyboard:
     type: app-extension
     platform: iOS
     sources:
       - path: ../Sources/WhisprBroKeyboard
+    # WhisprBroIPC ONLY — the appex must stay lean under its ~48MB jetsam
+    # floor and must never link WhisprBroCore/FluidAudio/GRDB (issue #13 P4;
+    # the IPC layer is zero-dependency for exactly this target).
     dependencies:
       - package: WhisprBro
-        product: WhisprBroCore
+        product: WhisprBroIPC
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.micaxes.whispr-bro.ios.keyboard

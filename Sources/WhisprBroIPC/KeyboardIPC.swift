@@ -1,8 +1,13 @@
 import Foundation
 
-/// Keyboard ↔ app IPC contract (issue #13, phases P4/P5). Layout constants and
-/// spec only — the mmap reader/writer, mailbox drain loop, and Darwin plumbing
-/// land with the session work.
+/// Keyboard ↔ app IPC contract (issue #13, phases P4/P5). This module is the
+/// single shared layer both processes compile against: the contract below plus
+/// its implementation (`StatusPageWriter`/`StatusPageReader`,
+/// `CommandMailboxWriter`/`CommandMailboxDrainer`, `ResultDrop`, `DarwinHint`,
+/// `SharedContainer`). It is pure Foundation with zero dependencies on purpose:
+/// the keyboard appex links it and must never pull in WhisprBroCore /
+/// FluidAudio / GRDB (~48MB jetsam floor), and POSIX mmap keeps it
+/// platform-neutral so `swift test` covers it on macOS.
 ///
 /// The App Group container carries exactly three artifacts — the status page
 /// (app → keyboard), the command mailbox (keyboard → app), and transcript
@@ -21,18 +26,18 @@ import Foundation
 /// processes — NEVER write a raw Swift struct dump: Swift layout is
 /// unspecified and can change across compiler versions, silently breaking a
 /// mixed keyboard/app pair mid-update.
-enum KeyboardIPC {
+public enum KeyboardIPC {
     /// Shared container holding all three IPC artifacts.
-    static let appGroupID = "group.com.micaxes.whispr-bro"
+    public static let appGroupID = "group.com.micaxes.whispr-bro"
     /// Status page (app-owned, app is the single writer), relative to the
     /// container root. Byte layout in `StatusPage`.
-    static let statusPageFileName = "session.status"
+    public static let statusPageFileName = "session.status"
     /// Command mailbox (keyboard-owned, keyboard is the single writer). Byte
     /// layout in `CommandMailbox`.
-    static let commandMailboxFileName = "session.mailbox"
+    public static let commandMailboxFileName = "session.mailbox"
     /// Directory of per-request transcript result files. See
     /// `TranscriptResult`.
-    static let resultsDirectoryName = "session.results"
+    public static let resultsDirectoryName = "session.results"
 
     /// Darwin notification names. Darwin is a HINT channel only: delivery
     /// coalesces under load, carries no payload, and can never wake a
@@ -41,9 +46,17 @@ enum KeyboardIPC {
     /// drains the mailbox by seq on each hint AND on foreground AND on a slow
     /// poll while a session is live; the keyboard polls the status page at
     /// ~20Hz while visible regardless of hints.
-    static let commandHintName = "bro.whispr.session.command"
-    static let statusHintName = "bro.whispr.session.status"
-    static let resultHintName = "bro.whispr.session.result"
+    public static let commandHintName = "bro.whispr.session.command"
+    public static let statusHintName = "bro.whispr.session.status"
+    public static let resultHintName = "bro.whispr.session.result"
+
+    /// The one wall-clock both sides stamp into the files: Unix epoch
+    /// milliseconds. Wall-clock (not mach uptime) because the two processes
+    /// don't share a boot-relative reference the keyboard could compare
+    /// against after the app is relaunched.
+    public static func nowMillis() -> UInt64 {
+        UInt64(Date().timeIntervalSince1970 * 1000)
+    }
 }
 
 /// Session lifecycle as the keyboard sees it (raw value = the byte at
@@ -51,7 +64,7 @@ enum KeyboardIPC {
 /// arming → (app foregrounds, continuous capture starts) → live → (mailbox
 /// startDictation) → dictating → live … → off on idle timeout / one-tap kill /
 /// audio interruption / jetsam.
-enum SessionState: UInt8 {
+public enum SessionState: UInt8 {
     case off = 0
     case arming = 1
     case live = 2
@@ -60,7 +73,7 @@ enum SessionState: UInt8 {
 
 /// Commands the keyboard may post (raw value = the command byte in a mailbox
 /// record).
-enum KeyboardCommand: UInt8 {
+public enum KeyboardCommand: UInt8 {
     case startDictation = 1
     case stopDictation = 2
     case cancel = 3
@@ -99,21 +112,21 @@ enum KeyboardCommand: UInt8 {
 /// 0..<44, re-loads generation, and retries on mismatch. A magic/version/
 /// checksum failure after a stable read means the writer died mid-write or the
 /// file predates this version — treat the page as dead, never as zeroed state.
-enum StatusPage {
-    static let magic: UInt32 = 0x5742_5350
-    static let version: UInt16 = 1
-    static let byteCount = 64
+public enum StatusPage {
+    public static let magic: UInt32 = 0x5742_5350
+    public static let version: UInt16 = 1
+    public static let byteCount = 64
 
-    enum Offset {
-        static let magic = 0
-        static let version = 4
-        static let sessionState = 6
-        static let sessionUUID = 8
-        static let audioLevel = 24
-        static let lastCommandAckSeq = 28
-        static let lastAudioCallbackAtMillis = 32
-        static let checksum = 40
-        static let generation = 44
+    public enum Offset {
+        public static let magic = 0
+        public static let version = 4
+        public static let sessionState = 6
+        public static let sessionUUID = 8
+        public static let audioLevel = 24
+        public static let lastCommandAckSeq = 28
+        public static let lastAudioCallbackAtMillis = 32
+        public static let checksum = 40
+        public static let generation = 44
     }
 }
 
@@ -145,26 +158,26 @@ enum StatusPage {
 /// (release store) — the reader never sees a seq whose record is torn. 64
 /// slots is far beyond any real backlog: a keyboard that laps an unresponsive
 /// app has long since flipped to the bounce key (`Liveness`).
-enum CommandMailbox {
-    static let magic: UInt32 = 0x5742_4D42
-    static let version: UInt16 = 1
-    static let capacity = 64
-    static let headerByteCount = 16
-    static let recordByteCount = 48
-    static let byteCount = 3088
+public enum CommandMailbox {
+    public static let magic: UInt32 = 0x5742_4D42
+    public static let version: UInt16 = 1
+    public static let capacity = 64
+    public static let headerByteCount = 16
+    public static let recordByteCount = 48
+    public static let byteCount = 3088
 
-    enum HeaderOffset {
-        static let magic = 0
-        static let version = 4
-        static let lastWrittenSeq = 8
+    public enum HeaderOffset {
+        public static let magic = 0
+        public static let version = 4
+        public static let lastWrittenSeq = 8
     }
 
-    enum RecordOffset {
-        static let seq = 0
-        static let command = 4
-        static let requestUUID = 8
-        static let keyboardInstanceNonce = 24
-        static let issuedAtMillis = 40
+    public enum RecordOffset {
+        public static let seq = 0
+        public static let command = 4
+        public static let requestUUID = 8
+        public static let keyboardInstanceNonce = 24
+        public static let issuedAtMillis = 40
     }
 }
 
@@ -185,12 +198,12 @@ enum CommandMailbox {
 /// pending-result key the user taps to insert deliberately. The keyboard
 /// deletes a result file once inserted or dismissed; the app garbage-collects
 /// unclaimed results after `unclaimedTTLSeconds`.
-enum TranscriptResult {
-    static let requestUUIDKey = "requestUUID"
-    static let keyboardInstanceNonceKey = "keyboardInstanceNonce"
-    static let textKey = "text"
-    static let completedAtMillisKey = "completedAtMillis"
-    static let unclaimedTTLSeconds: TimeInterval = 600
+public enum TranscriptResult {
+    public static let requestUUIDKey = "requestUUID"
+    public static let keyboardInstanceNonceKey = "keyboardInstanceNonce"
+    public static let textKey = "text"
+    public static let completedAtMillisKey = "completedAtMillis"
+    public static let unclaimedTTLSeconds: TimeInterval = 600
 }
 
 /// LIVENESS RULE — how the mic key decides the app is gone. The app acks every
@@ -214,7 +227,31 @@ enum TranscriptResult {
 /// already the bounce key — no verdict needed. This pair of file-backed
 /// timestamps is what lets a keyboard detect a jetsamed app that Darwin, by
 /// design, can never wake or make answer.
-enum Liveness {
-    static let commandAckTimeoutMillis: UInt64 = 300
-    static let audioHeartbeatTimeoutMillis: UInt64 = 1_000
+public enum Liveness {
+    public static let commandAckTimeoutMillis: UInt64 = 300
+    public static let audioHeartbeatTimeoutMillis: UInt64 = 1_000
+
+    /// The dual-condition verdict, as a pure function of the keyboard's own
+    /// bookkeeping (what it last posted, and when) and the status-page
+    /// snapshot. `true` means flip the mic key into the bounce key. Only
+    /// meaningful while the page reports live/dictating — when sessionState
+    /// is off the keyboard shows the bounce key without asking. "Over N ms
+    /// ago" is strict: an elapsed time of exactly the timeout is not yet
+    /// stale. With no command in flight (`lastPostedSeq` already acked, or 0
+    /// because nothing was ever posted) the ack condition cannot hold and the
+    /// verdict is alive.
+    public static func sessionIsDead(
+        nowMillis: UInt64,
+        lastPostedSeq: UInt32,
+        lastPostedAtMillis: UInt64,
+        lastCommandAckSeq: UInt32,
+        lastAudioCallbackAtMillis: UInt64
+    ) -> Bool {
+        let ackStale = lastCommandAckSeq < lastPostedSeq
+            && nowMillis > lastPostedAtMillis
+            && nowMillis - lastPostedAtMillis > commandAckTimeoutMillis
+        let heartbeatStale = nowMillis > lastAudioCallbackAtMillis
+            && nowMillis - lastAudioCallbackAtMillis > audioHeartbeatTimeoutMillis
+        return ackStale && heartbeatStale
+    }
 }

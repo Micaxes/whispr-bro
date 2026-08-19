@@ -47,11 +47,11 @@ struct HomeView: View {
     private var recordKey: some View {
         Button(action: { model.toggleRecording() }) {
             ZStack {
-                // Live level ring: RMS (~0…0.3 for speech) scaled into 0…1.
+                // Live level ring: perceptual (dB-normalized) level, already 0…1.
                 Circle()
                     .stroke(Brand.creamAccent, lineWidth: 6)
                 Circle()
-                    .trim(from: 0, to: isRecording ? CGFloat(min(1, model.level * 6)) : 0)
+                    .trim(from: 0, to: isRecording ? CGFloat(model.level) : 0)
                     .stroke(Brand.ink, style: StrokeStyle(lineWidth: 6, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: 1.0 / 24), value: model.level)

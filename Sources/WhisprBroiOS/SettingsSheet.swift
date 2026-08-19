@@ -3,9 +3,11 @@ import WhisprBroCore
 
 /// Settings sheet: dictation language (English = fast Parakeet v2; it/es need
 /// the multilingual v3, gated on it being installed), Auto-Clean level (same
-/// UserDefaults keys as macOS), history toggle, and the privacy card.
+/// UserDefaults keys as macOS), history toggle, keyboard-session idle expiry,
+/// and the privacy card.
 struct SettingsSheet: View {
     @EnvironmentObject private var model: DictationModel
+    @ObservedObject private var session = AppModel.session
     @Environment(\.dismiss) private var dismiss
     @AppStorage(DictationLanguage.storageKey) private var languageRaw = DictationLanguage.english.rawValue
 
@@ -19,6 +21,7 @@ struct SettingsSheet: View {
                 languageSection
                 cleanupSection
                 historySection
+                keyboardSection
                 privacySection
             }
             .scrollContentBackground(.hidden)
@@ -111,6 +114,39 @@ struct SettingsSheet: View {
             header("History")
         }
         .listRowBackground(Brand.raised)
+    }
+
+    // MARK: Keyboard session
+
+    private var keyboardSection: some View {
+        Section {
+            ForEach(SessionController.IdleExpiry.allCases, id: \.self) { option in
+                Button {
+                    session.idleExpiry = option
+                } label: {
+                    row(
+                        title: option.displayName,
+                        subtitle: expirySubtitle(for: option),
+                        selected: session.idleExpiry == option)
+                }
+            }
+        } header: {
+            header("Keyboard session")
+        } footer: {
+            footer("Dictating from the whispr keyboard runs a session: the mic is honestly "
+                + "live the whole time (the indicator stays on — that's the point, not a "
+                + "leak), audio never leaves this device, and you can kill the session any "
+                + "time from the Live Activity. Pick how long an idle session stays armed.")
+        }
+        .listRowBackground(Brand.raised)
+    }
+
+    private func expirySubtitle(for option: SessionController.IdleExpiry) -> String {
+        switch option {
+        case .immediately: "Mic closes as soon as your text lands"
+        case .fiveMinutes: "Stay armed for quick back-to-back dictations"
+        case .fifteenMinutes: "Longest the mic will wait between dictations"
+        }
     }
 
     // MARK: Privacy

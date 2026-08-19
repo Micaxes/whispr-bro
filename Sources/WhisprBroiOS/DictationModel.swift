@@ -281,7 +281,7 @@ final class DictationModel: ObservableObject {
         levelTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 24, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self, self.state == .recording else { return }
-                self.level = self.audio.lastRMS
+                self.level = AudioLevel.perceptual(self.audio.lastRMS)
             }
         }
     }
@@ -353,6 +353,29 @@ final class DictationModel: ObservableObject {
             Task.detached { await HistoryStore.shared?.save(record) }
         }
         return (rawText: verbatimText, text: text, timings: timings)
+    }
+
+    /// Session-mode entry (issue #13 P4, `SessionController`): run the EXACT
+    /// shared stages of `runPipeline` — VAD trim → ASR → dictionary → filler
+    /// strip → rule-based cleanup, publishing to the UI + pasteboard (the
+    /// keyboard-side fallback) and saving history — on samples the session's
+    /// continuous engine captured. Returns nil when the segment is too short,
+    /// ASR produced no text, or the pipeline is busy (a session dictation
+    /// never preempts an in-app one; the caller logs and drops the segment).
+    func transcribeSessionSamples(_ samples: [Float], timings: StageTimings) async throws -> String? {
+        guard state == .idle else {
+            let stateDescription = String(describing: state)
+            log.warning("session dictation dropped: pipeline busy (\(stateDescription))")
+            return nil
+        }
+        guard samples.count >= asr.minimumSamples else { return nil }
+        state = .transcribing
+        do {
+            return try await runPipeline(samples, timings: timings)?.text
+        } catch {
+            state = .idle
+            throw error
+        }
     }
 
     private func transcribe(_ samples: [Float], timings: StageTimings) async {

@@ -22,10 +22,13 @@ final class HUDModel: ObservableObject {
     static let barCount = 28
 
     func pushLevel(_ rms: Float) {
-        // Normalize quiet speech into a visible range without clipping loud.
-        let scaled = min(1, max(0, rms * 12))
+        // dB-normalized (AudioLevel) — a linear RMS scale reads nearly flat
+        // because speech RMS lives around 0.005–0.05. Pushed UNsmoothed:
+        // no attack/release envelope, so the bars react instantly in both
+        // directions (Wispr Flow-style direct response; the scrolling history
+        // itself is what carries a syllable across the pebble).
         levels.removeFirst()
-        levels.append(scaled)
+        levels.append(AudioLevel.perceptual(rms))
     }
 
     func resetLevels() {

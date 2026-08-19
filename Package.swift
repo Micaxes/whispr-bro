@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "WhisprBroCore", targets: ["WhisprBroCore"]),
+        .library(name: "WhisprBroIPC", targets: ["WhisprBroIPC"]),
         .executable(name: "WhisprBro", targets: ["WhisprBro"]),
         .executable(name: "whispr-bench", targets: ["whispr-bench"]),
     ],
@@ -39,9 +40,21 @@ let package = Package(
             name: "whispr-bench",
             dependencies: ["WhisprBroCore"]
         ),
+        // Keyboard ↔ app IPC contract + implementation (issue #13 P4). Pure
+        // Foundation, ZERO dependencies — the keyboard appex links this and
+        // must never pull in WhisprBroCore/FluidAudio/GRDB (~48MB jetsam
+        // floor). POSIX mmap keeps it macOS-buildable so `swift test` covers
+        // the whole layer off-device.
+        .target(
+            name: "WhisprBroIPC"
+        ),
         .testTarget(
             name: "WhisprBroCoreTests",
             dependencies: ["WhisprBroCore"]
+        ),
+        .testTarget(
+            name: "WhisprBroIPCTests",
+            dependencies: ["WhisprBroIPC"]
         ),
     ]
 )
