@@ -35,6 +35,20 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<!-- The session card's return-to-app allowlist (ReturnApp.curated):
+	     canOpenURL only answers for schemes declared here. URL-scheme opens
+	     only — no networking. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>claude</string>
+		<string>chatgpt</string>
+		<string>mobilenotes</string>
+		<string>whatsapp</string>
+		<string>tg</string>
+		<string>slack</string>
+		<string>googlegmail</string>
+		<string>twitter</string>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>whispr bro transcribes entirely on this device — audio never leaves it.</string>
 	<!-- StartDictationIntent's Live Activity (issue #13 row-8 probe): the

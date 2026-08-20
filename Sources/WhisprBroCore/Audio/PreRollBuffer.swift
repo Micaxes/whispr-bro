@@ -47,6 +47,19 @@ public final class PreRollBuffer: @unchecked Sendable {
         }
     }
 
+    /// Drop everything in the pre-roll ring without touching an open
+    /// utterance. `AudioEngine.startCapture` calls this so the ring is scoped
+    /// to the CURRENT capture: the buffer outlives capture stops (the engine
+    /// keeps the tap warm across them, for the process lifetime), so without
+    /// this the first `beginUtterance` of a NEW capture — before any fresh
+    /// audio callback lands — would splice up to `preRollSampleCount` samples
+    /// of a PREVIOUS capture's audio onto the utterance.
+    public func discardPreRoll() {
+        lock.lock()
+        defer { lock.unlock() }
+        preRoll.removeAll(keepingCapacity: true)
+    }
+
     /// Snapshot the pre-roll as the start of a new utterance and switch to
     /// accumulation mode. The snapshot is EMPTY unless capture was already
     /// running before this call: under mic-on-demand (both apps today —

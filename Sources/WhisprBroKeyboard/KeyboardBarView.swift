@@ -314,7 +314,12 @@ private struct StatusStrip: View {
         switch session.phase {
         case .idle:
             if session.showsArmingHint {
-                "finishing in whispr bro — swipe back when armed"
+                // Two truths: the tap's pre-posted start makes "recording"
+                // real the moment the session goes live; when that post
+                // failed the old wait-for-arm copy is all we may promise.
+                session.armingHintLiveStart
+                    ? "recording in whispr bro — swipe back to see it live"
+                    : "finishing in whispr bro — swipe back when armed"
             } else if !session.ipcEnabled {
                 "keyboard link off in this build — dictating opens whispr bro"
             } else {

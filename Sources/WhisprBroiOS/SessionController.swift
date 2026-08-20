@@ -71,10 +71,36 @@ final class SessionController: ObservableObject {
         }
     }
 
+    /// Who armed the session — the keyboard's deep link
+    /// (`whisprbro://session/start?source=keyboard`) or anything else (App
+    /// Intent, Control Center, Shortcuts: the plain URL). Keyboard arms get
+    /// their pre-posted `startDictation` preserved across the bring-up flush
+    /// and the session card's auto-switchback; external arms get neither.
+    enum StartSource {
+        case keyboard
+        case external
+    }
+
     @Published private(set) var phase: Phase = .off
     /// The full-screen brand card ("Session on — swipe back ←"), shown on
     /// arming and dropped the moment the app backgrounds (`SessionCardView`).
     @Published var showSessionCard = false
+    /// Whether the CURRENT session was armed via the keyboard deep link — the
+    /// gate on the session card's auto-switchback. Set on EVERY arm (a
+    /// keyboard re-bounce over a live session is still a keyboard arm; an
+    /// external arm over one must kill a stale card's switchback), reset on
+    /// teardown.
+    @Published private(set) var armedViaKeyboard = false
+    /// The user's remembered switchback target (`ReturnApp`), persisted in
+    /// the app's own UserDefaults — never the App Group; the keyboard has no
+    /// use for it. Nil until the user picks one from the session card.
+    @Published var returnApp: ReturnApp? = ReturnApp.byID(
+        UserDefaults.standard.string(forKey: ReturnApp.storageKey)
+    ) {
+        didSet {
+            UserDefaults.standard.set(returnApp?.id, forKey: ReturnApp.storageKey)
+        }
+    }
     @Published var idleExpiry: IdleExpiry = {
         if let raw = UserDefaults.standard.string(forKey: IdleExpiry.storageKey),
            let expiry = IdleExpiry(rawValue: raw) { return expiry }
@@ -139,13 +165,22 @@ final class SessionController: ObservableObject {
     }
 
     /// The arming flow, entered ONLY from the `whisprbro://session/start` deep
-    /// link (the keyboard's mic key) — i.e. while the app is foregrounding,
-    /// the one legal place to start the mic.
-    func startSession() {
+    /// link (the keyboard's mic key, App Intents, Control Center — the router
+    /// maps `?source=keyboard` to `.keyboard`) — i.e. while the app is
+    /// foregrounding, the one legal place to start the mic. A keyboard arm
+    /// additionally preserves the mic tap's pre-posted `startDictation`
+    /// through the bring-up flush (`SessionIPC.begin`), so segment 1 starts
+    /// recording the moment the session goes live — while the user is still
+    /// on the card or mid swipe-back.
+    func startSession(source: StartSource) {
         startup() // defensive: a cold deep-link launch races onAppear
         guard phase == .off else {
             // Already live — the mic key just bounced us back; re-surface the
-            // card so the user gets the "swipe back" hint again.
+            // card so the user gets the "swipe back" hint again. The arm
+            // SOURCE still updates: a keyboard re-bounce is a keyboard arm,
+            // and an external arm over a live session must never leave a
+            // stale card able to switch back.
+            armedViaKeyboard = source == .keyboard
             showSessionCard = true
             return
         }
@@ -153,8 +188,11 @@ final class SessionController: ObservableObject {
             log.error("session start refused: app is backgrounded (mic sessions start foreground-only)")
             return
         }
+        armedViaKeyboard = source == .keyboard
         sessionGeneration += 1
-        ipc?.begin(sessionUUID: UUID()) // status → .arming, stale mailbox flushed
+        // Status → .arming, stale mailbox flushed — except a keyboard arm's
+        // own young startDictation, preserved to open segment 1 at goLive.
+        ipc?.begin(sessionUUID: UUID(), preserveKeyboardStart: source == .keyboard)
         do {
             // Lights the mic indicator — and it stays lit for the whole
             // session, on purpose (see the class doc + Settings caption).
@@ -162,7 +200,8 @@ final class SessionController: ObservableObject {
         } catch {
             log.error("session mic start failed: \(error.localizedDescription)")
             ipc?.fail(code: .micStartFailed) // stamped BEFORE the terminal .off
-            ipc?.transition(to: .off)
+            ipc?.transition(to: .off) // also drops any preserved start
+            armedViaKeyboard = false
             return
         }
         phase = .live
@@ -178,9 +217,24 @@ final class SessionController: ObservableObject {
         DictationIntentHooks.stop = { [weak self] in
             await MainActor.run { self?.endSession(reason: "Live Activity stop") }
         }
+        let generation = sessionGeneration
         Task {
-            do { try await DictationActivityController.start(phase: .sessionLive) }
-            catch { log.notice("Live Activity unavailable: \(error.localizedDescription)") }
+            do {
+                try await DictationActivityController.start(phase: .sessionLive)
+                // `start` can suspend awaiting a stale predecessor's end —
+                // long enough for the preserved keyboard start to open
+                // segment 1, whose `updateSession(.recording)` then hit a
+                // nil activity and was lost, stranding the island on the
+                // steady mic for the whole segment. Re-derive the phase now
+                // that the activity exists. Generation-checked: a session
+                // that died (or was replaced) while we waited must not be
+                // repainted as recording.
+                if sessionGeneration == generation, phase == .dictating {
+                    await DictationActivityController.updateSession(phase: .recording)
+                }
+            } catch {
+                log.notice("Live Activity unavailable: \(error.localizedDescription)")
+            }
         }
         log.info("session started (idle expiry: \(self.idleExpiry.rawValue, privacy: .public))")
     }
@@ -195,6 +249,7 @@ final class SessionController: ObservableObject {
         if phase == .dictating { _ = audio.endUtterance() }
         phase = .off
         showSessionCard = false
+        armedViaKeyboard = false
         idleTimer?.invalidate()
         idleTimer = nil
         cancelSegmentCap()
@@ -582,6 +637,14 @@ private final class SessionIPC: @unchecked Sendable {
     private var partialSegment: UUID?
     private var partialText: String?
     private var partialDirty = false
+    /// A keyboard arm's own pre-posted startDictation — at most one record
+    /// (`SessionStartFlush.partition` is newest-only), stashed by `begin`
+    /// (already acked there — never re-acked) and delivered exactly once at
+    /// the end of `goLive`'s queue block. Control-queue-confined, like the
+    /// partial ivars; cleared on every path where goLive never comes
+    /// (`transition(to: .off)`, `end()`) so a preserved start can never leak
+    /// into a later session.
+    private var preservedStartRecords: [CommandRecord] = []
 
     init(level: @escaping () -> Float, onCommands: @escaping ([CommandRecord]) -> Void) {
         self.level = level
@@ -613,10 +676,18 @@ private final class SessionIPC: @unchecked Sendable {
     }
 
     /// Status → `.arming` with a fresh sessionUUID, and the mailbox flushed:
-    /// anything still in it was posted before this session went live (the
-    /// keyboard only posts against a live page), so it targets a session that
-    /// no longer exists — ack + discard, never execute.
-    func begin(sessionUUID: UUID) {
+    /// everything still in it is acked (ack proves "drained", never "done"),
+    /// then discarded — EXCEPT, on a keyboard arm, the NEWEST `startDictation`
+    /// younger than `SessionStartFlush.preservedStartMaxAgeMillis` (newest
+    /// only: an older young start is a jetsammed session's orphan, and its
+    /// dead keyboard's nonce must not key segment 1). That command IS
+    /// the arming tap itself (the keyboard posts start before deep-linking):
+    /// it is stashed here and executed the moment the session goes live
+    /// (`goLive`), so segment 1 records while the user swipes back. The
+    /// drainer's cursor advances wholesale, so a stash-then-redeliver is the
+    /// only way a pre-posted command can ever execute — and because it was
+    /// acked here, it is never re-acked on delivery.
+    func begin(sessionUUID: UUID, preserveKeyboardStart: Bool) {
         queue.async {
             guard let status = self.status else { return }
             status.beginSession(sessionUUID: sessionUUID)
@@ -624,8 +695,15 @@ private final class SessionIPC: @unchecked Sendable {
                 let stale = drainer.drain()
                 for record in stale { status.acknowledge(commandSeq: record.seq) }
                 self.persistWatermark()
-                if !stale.isEmpty {
-                    self.log.notice("flushed \(stale.count) stale mailbox command(s)")
+                let discarded: [CommandRecord]
+                if preserveKeyboardStart {
+                    (self.preservedStartRecords, discarded) = SessionStartFlush.partition(
+                        stale, nowMillis: KeyboardIPC.nowMillis())
+                } else {
+                    discarded = stale
+                }
+                if !discarded.isEmpty {
+                    self.log.notice("flushed \(discarded.count) stale mailbox command(s)")
                 }
             }
             DarwinHint.post(KeyboardIPC.statusHintName)
@@ -642,6 +720,14 @@ private final class SessionIPC: @unchecked Sendable {
     /// the page to `.off`. The 250ms poll is the file-backed recovery for
     /// coalesced/dropped Darwin hints (they never wake a suspended app; the
     /// active audio session is what keeps us scheduled to run it).
+    ///
+    /// Tail of the block: deliver any start `begin` preserved. Sequencing is
+    /// deterministic — goLive is queued from the main actor AFTER `phase =
+    /// .live`, and `onCommands` hops back via `Task { @MainActor }`, which
+    /// lands after `startSession` returns — so `handle(.startDictation)`'s
+    /// `guard phase == .live` passes. The partition preserves at most ONE
+    /// start (newest-only — `SessionStartFlush.partition`), and the record
+    /// was acked in `begin` — never re-acked here.
     func goLive() {
         queue.async {
             self.status?.transition(to: .live)
@@ -659,11 +745,18 @@ private final class SessionIPC: @unchecked Sendable {
             self.hintToken = DarwinHint.observe(KeyboardIPC.commandHintName) { [weak self] in
                 self?.drainNow() // hint lands on the main run loop; hop over
             }
+            let preserved = self.preservedStartRecords
+            self.preservedStartRecords = []
+            if !preserved.isEmpty { self.onCommands(preserved) }
         }
     }
 
     func transition(to state: SessionState) {
         queue.async {
+            // `.off` before goLive ever ran (mic start failed): the preserved
+            // start's session never happened — drop it, or it would execute
+            // in a LATER session's goLive.
+            if state == .off { self.preservedStartRecords = [] }
             self.status?.transition(to: state)
             DarwinHint.post(KeyboardIPC.statusHintName)
         }
@@ -691,6 +784,7 @@ private final class SessionIPC: @unchecked Sendable {
             self.pollTimer = nil
             self.hintToken?.cancel()
             self.hintToken = nil
+            self.preservedStartRecords = [] // must never leak into a later session
             self.tearDownPartialLocked()
             self.status?.transition(to: .off)
             DarwinHint.post(KeyboardIPC.statusHintName)
@@ -698,9 +792,10 @@ private final class SessionIPC: @unchecked Sendable {
     }
 
     /// A segment opened: arm the ~10Hz publish pump for `nonce` (the START
-    /// command's keyboardInstanceNonce — the keyboard's render guard, so a
-    /// preview can only ever paint the keyboard instance that initiated the
-    /// segment) and `segment` (the START command's requestUUID — the
+    /// command's keyboardInstanceNonce, echoed onto the page as the segment's
+    /// diagnostic identity — the keyboard's DISPLAY gate is its phase, not
+    /// this nonce; see `KeyboardSession.updatePartialText`) and `segment`
+    /// (the START command's requestUUID — the
     /// `updatePartial` stale-callback guard). All partial-page writes ride
     /// this one queue with the status page — the single-writer contract is
     /// one process AND one queue.
@@ -820,10 +915,32 @@ private final class SessionIPC: @unchecked Sendable {
 /// landing: dark ink, the echo-w listening pulse, and an animated "swipe
 /// back ←" hint (à la Wispr's setup guide). Its one job is telling the user
 /// the mic is now honestly live and how to get back to what they were doing;
-/// it auto-dismisses the moment the app backgrounds.
+/// it auto-dismisses the moment the app backgrounds. Phase-aware since the
+/// keyboard's arming tap pre-posts its own startDictation: by the time this
+/// card renders the session is usually already `.dictating`, and the copy
+/// must say so ("already recording — swipe back and keep talking").
+///
+/// KEYBOARD-ARMED SESSIONS ONLY additionally get the return affordance
+/// (`ReturnApp`): with a remembered target the card announces "returning to
+/// <app>…" and deep-links its scheme after `autoReturnDelay` — a tap anywhere
+/// within that window cancels; without one it offers the installed-apps
+/// picker row. The swipe-back line always remains — it is the only return
+/// path for apps outside the allowlist.
 struct SessionCardView: View {
     @ObservedObject var session: SessionController
     @State private var slide = false
+    /// Curated return apps actually installed, resolved once per presentation
+    /// (`canOpenURL` — every scheme is declared in App-Info.plist's
+    /// LSApplicationQueriesSchemes, so the answers are real).
+    @State private var installedReturnApps: [ReturnApp] = []
+    /// Non-nil while the auto-switchback countdown runs.
+    @State private var pendingReturn: ReturnApp?
+    @State private var returnTask: Task<Void, Never>?
+
+    /// The cancel window between the card appearing with a remembered target
+    /// and its scheme being opened: long enough to read the announcement and
+    /// tap, short enough to feel automatic.
+    private static let autoReturnDelay: Duration = .milliseconds(800)
 
     var body: some View {
         ZStack {
@@ -832,7 +949,7 @@ struct SessionCardView: View {
                 Spacer()
                 EchoWMark(color: Brand.paper, listening: true)
                     .frame(width: 150, height: 68)
-                Text("Session on")
+                Text(session.phase == .dictating ? "Recording" : "Session on")
                     .font(Brand.sans(32, .semibold)).foregroundStyle(Brand.paper)
                     .padding(.top, 28)
                 Text("MIC LIVE · AUDIO NEVER LEAVES THIS DEVICE")
@@ -843,7 +960,9 @@ struct SessionCardView: View {
                     Image(systemName: "arrow.left")
                         .font(.system(size: 17, weight: .semibold))
                         .offset(x: slide ? -7 : 3)
-                    Text("swipe back — the whispr key dictates anywhere")
+                    Text(session.phase == .dictating
+                        ? "already recording — swipe back and keep talking"
+                        : "swipe back — the whispr key dictates anywhere")
                         .font(Brand.sans(16, .medium))
                 }
                 .foregroundStyle(Brand.paper)
@@ -851,8 +970,15 @@ struct SessionCardView: View {
                 Text(expiryLine)
                     .font(Brand.mono(11)).foregroundStyle(Brand.lightMono)
                     .padding(.top, 12)
+                returnAffordance
+                    .padding(.top, 28)
                 Spacer()
                 Button {
+                    // Cancel the countdown AT TAP TIME: relying on the
+                    // card's onDisappear would leave a window where a tap in
+                    // the final milliseconds ends the session but the
+                    // already-sleeping return task still opens the other app.
+                    cancelAutoReturn()
                     session.endSession(reason: "ended from session card")
                 } label: {
                     Text("END SESSION")
@@ -867,11 +993,96 @@ struct SessionCardView: View {
             .padding(.horizontal, 24)
             .multilineTextAlignment(.center)
         }
+        // The auto-switchback cancel: any tap on the card within the window
+        // stays here (buttons inside — END SESSION, the picker chips — still
+        // win their own taps). A no-op when no countdown is running.
+        .contentShape(Rectangle())
+        .onTapGesture { cancelAutoReturn() }
         .onAppear {
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 slide = true
             }
+            installedReturnApps = ReturnApp.installed()
+            armAutoReturn()
         }
+        .onDisappear {
+            returnTask?.cancel()
+            returnTask = nil
+        }
+    }
+
+    /// The switchback affordance, keyboard-armed sessions only (an Action
+    /// Button / Control Center / Shortcuts arm has no "app the user was
+    /// typing in" to return to): the countdown announcement while one runs,
+    /// the picker row otherwise. Nothing at all when no curated app is
+    /// installed — the swipe-back line above is the honest instruction then.
+    @ViewBuilder private var returnAffordance: some View {
+        if let app = pendingReturn {
+            Text("returning to \(app.name)… tap anywhere to stay")
+                .font(Brand.mono(11, .medium)).tracking(0.5)
+                .foregroundStyle(Brand.lightMono)
+        } else if session.armedViaKeyboard, !installedReturnApps.isEmpty {
+            VStack(spacing: 10) {
+                Text("OR RETURN TO")
+                    .font(Brand.mono(10, .medium)).tracking(1.5)
+                    .foregroundStyle(Brand.lightMono.opacity(0.7))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(installedReturnApps) { app in
+                            Button {
+                                session.returnApp = app // remembered for next time
+                                open(app)
+                            } label: {
+                                Text(app.name)
+                                    .font(Brand.mono(12, .medium))
+                                    .foregroundStyle(Brand.paper)
+                                    .padding(.vertical, 8).padding(.horizontal, 14)
+                                    .overlay(Capsule().stroke(
+                                        Brand.lightMono.opacity(0.4), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 2) // keep the capsule strokes unclipped
+                }
+            }
+        }
+    }
+
+    /// Arms the auto-switchback countdown: keyboard-armed session + a
+    /// remembered target that is still installed. The open lands from the
+    /// APP — plain public `UIApplication.open`, nothing appex-restricted —
+    /// and backgrounding us auto-dismisses this card (`scenePhaseChanged`).
+    private func armAutoReturn() {
+        guard session.armedViaKeyboard,
+              let app = session.returnApp,
+              installedReturnApps.contains(app) else { return }
+        pendingReturn = app
+        returnTask = Task {
+            try? await Task.sleep(for: Self.autoReturnDelay)
+            // Re-check the arming conditions AFTER the sleep, not just
+            // cancellation: the session can die (END SESSION, idle expiry,
+            // interruption) or be re-armed EXTERNALLY (which flips
+            // `armedViaKeyboard` off) inside the window, and cancellation
+            // only covers the paths that knew to cancel us. A switchback for
+            // a session that no longer wants one must never fire.
+            guard !Task.isCancelled,
+                  session.armedViaKeyboard,
+                  session.phase != .off else { return }
+            open(app)
+        }
+    }
+
+    private func cancelAutoReturn() {
+        guard pendingReturn != nil else { return }
+        returnTask?.cancel()
+        returnTask = nil
+        pendingReturn = nil
+    }
+
+    private func open(_ app: ReturnApp) {
+        guard let url = URL(string: app.scheme) else { return }
+        UIApplication.shared.open(url)
     }
 
     private var expiryLine: String {

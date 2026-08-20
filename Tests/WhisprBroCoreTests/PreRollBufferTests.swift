@@ -61,6 +61,39 @@ final class PreRollBufferTests: XCTestCase {
         XCTAssertEqual(buffer.endUtterance().count, 500)
     }
 
+    // MARK: - discardPreRoll (capture-scoped ring)
+
+    func testDiscardPreRollDropsStaleAudioFromPreviousCapture() {
+        // The AudioEngine.startCapture scenario: the ring still holds a
+        // PREVIOUS capture's tail (the buffer is process-lifetime), and the
+        // next utterance begins before any fresh callback lands — the splice
+        // must not resurrect the old audio.
+        let buffer = PreRollBuffer(preRollSampleCount: 100)
+        buffer.append(Array(repeating: 1, count: 80)) // previous capture
+        // stop → start: startCapture discards the ring…
+        buffer.discardPreRoll()
+        // …then the preserved start opens the utterance immediately.
+        buffer.beginUtterance()
+        XCTAssertEqual(buffer.endUtterance(), [])
+    }
+
+    func testRingRefillsWithFreshAudioAfterDiscard() {
+        let buffer = PreRollBuffer(preRollSampleCount: 100)
+        buffer.append(Array(repeating: 1, count: 80)) // previous capture
+        buffer.discardPreRoll()
+        buffer.append(Array(repeating: 2, count: 30)) // fresh capture's audio
+        buffer.beginUtterance()
+        XCTAssertEqual(buffer.endUtterance(), Array(repeating: 2, count: 30))
+    }
+
+    func testDiscardPreRollLeavesOpenUtteranceIntact() {
+        let buffer = PreRollBuffer(preRollSampleCount: 10)
+        buffer.beginUtterance()
+        buffer.append([1, 2, 3])
+        buffer.discardPreRoll() // only the idle ring may be dropped
+        XCTAssertEqual(buffer.endUtterance(), [1, 2, 3])
+    }
+
     // MARK: - drainNewSamples (streaming VAD tail)
 
     func testDrainReturnsOnlyNewSamplesSinceLastDrain() {

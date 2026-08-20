@@ -58,16 +58,21 @@ struct RootView: View {
                 .tabItem { Label("History", systemImage: "clock.arrow.circlepath") }
         }
         .tint(Brand.ink)
-        // The whisprbro:// router. session/start is the keyboard mic key's
-        // arming deep link (issue #13 P4): foreground-start the continuous-
-        // capture session and show the brand card until the user swipes back.
+        // The whisprbro:// router. session/start is the arming deep link
+        // (issue #13 P4): foreground-start the continuous-capture session and
+        // show the brand card until the user swipes back. The keyboard's mic
+        // key appends ?source=keyboard — that arm preserves the keyboard's
+        // pre-posted start and enables the card's auto-switchback; the App
+        // Intent / Control Center arms use the plain URL and stay `.external`.
         // settings is the keyboard toolbar's gear key: present the same
         // Settings sheet HomeView offers.
         .onOpenURL { url in
             switch url.host() {
             case "session":
                 guard url.path() == "/start" else { return }
-                session.startSession()
+                let source = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first(where: { $0.name == "source" })?.value
+                session.startSession(source: source == "keyboard" ? .keyboard : .external)
             case "settings":
                 showSettingsFromLink = true
             #if DEBUG || SPIKE

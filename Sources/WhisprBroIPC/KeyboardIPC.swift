@@ -65,10 +65,12 @@ public enum KeyboardIPC {
 }
 
 /// Session lifecycle as the keyboard sees it (raw value = the byte at
-/// `StatusPage.Offset.sessionState`). Off → (mic tap deep-links to the app) →
-/// arming → (app foregrounds, continuous capture starts) → live → (mailbox
-/// startDictation) → dictating → live … → off on idle timeout / one-tap kill /
-/// audio interruption / jetsam.
+/// `StatusPage.Offset.sessionState`). Off → (mic tap posts startDictation
+/// into the mailbox, then deep-links to the app) → arming → (app foregrounds,
+/// continuous capture starts; the preserved start — `SessionStartFlush` —
+/// opens segment 1 immediately) → dictating ⇄ live via further mailbox
+/// commands … → off on idle timeout / one-tap kill / audio interruption /
+/// jetsam.
 public enum SessionState: UInt8 {
     case off = 0
     case arming = 1

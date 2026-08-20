@@ -5,10 +5,12 @@ import Foundation
 /// (cleared: no text, zero nonce) is a valid snapshot meaning "no preview
 /// right now" — distinct from `read()` returning nil (no truth this tick).
 public struct PartialSnapshot: Equatable {
-    /// The START command's keyboardInstanceNonce, echoed by the app. The
-    /// keyboard renders `text` ONLY when this equals its own live nonce —
-    /// a preview for a segment some other keyboard instance opened must
-    /// never paint over an unrelated host app's strip.
+    /// The START command's keyboardInstanceNonce, echoed by the app —
+    /// diagnostic identity of the instance that OPENED the segment. NOT the
+    /// keyboard's render gate: display is phase-gated instead (see
+    /// `KeyboardSession.updatePartialText` — a fresh instance after the
+    /// arming round trip must still render the auto-started segment's
+    /// preview); only transcript INSERTION is nonce-strict.
     public let keyboardInstanceNonce: UUID
     /// Tail-kept UTF-8 preview text (`PartialPage` layout); empty when no
     /// segment is streaming.

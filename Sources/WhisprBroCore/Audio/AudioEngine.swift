@@ -114,6 +114,16 @@ public final class AudioEngine: @unchecked Sendable {
     /// re-prepares first if the input device/format changed.
     public func startCapture() throws {
         guard !capturing else { return }
+        // Scope the pre-roll ring to THIS capture. The engine (and its
+        // buffer) is process-lifetime and `stopCapture` deliberately keeps
+        // everything warm, so whatever the ring held when the last capture
+        // stopped is still there — and an utterance begun before the first
+        // fresh callback (the iOS session's preserved keyboard start fires
+        // within milliseconds of this call; the macOS/in-app mic-on-demand
+        // paths call `beginUtterance()` back-to-back with this) would splice
+        // up to 0.5s of a PREVIOUS capture's audio into the transcript.
+        // Cleared here, at the one choke point every capture path shares.
+        buffer.discardPreRoll()
         #if os(iOS)
         // Session activation is what lights the iOS mic indicator — kept here
         // (not in `prepare()`) to mirror the macOS on-demand semantics. It must

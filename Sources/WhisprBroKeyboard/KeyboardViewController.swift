@@ -92,18 +92,44 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    /// Deep link out of the appex. The UIResponder-chain openURL trick is
-    /// dead on iOS 18+; `extensionContext?.open` is the remaining route and
-    /// is not guaranteed for keyboards — hence the status strip's "finishing
-    /// in whispr bro" hint doubles as the manual fallback instruction.
+    /// Deep link out of the appex — the DTS-sanctioned route (thread 812091):
+    /// walk the responder chain up from this controller to the first responder
+    /// that implements `openURL:options:completionHandler:` (UIApplication, or
+    /// on newer iOS a UIScene — the selector matches both, KeyboardKit-style)
+    /// and invoke it through its IMP. `UIApplication.shared`/`open` don't
+    /// compile in an appex; the IMP cast is the sanctioned escape. Options and
+    /// completion are passed nil on purpose: UIScene's options parameter is a
+    /// `UISceneOpenExternalURLOptions` OBJECT, not a dictionary, so an empty
+    /// NSDictionary would be wrongly typed there. On iOS 26+ this requires
+    /// Full Access (sandbox error -54 without it) — acceptable: the mic key is
+    /// already hidden without Full Access (`KeyboardBar`). `extensionContext?
+    /// .open` is a NO-OP from keyboard extensions on every iOS version, kept
+    /// only as a can't-hurt last resort behind the walk.
     private func open(_ url: URL) {
-        extensionContext?.open(url, completionHandler: nil)
+        let selector = sel_registerName("openURL:options:completionHandler:")
+        var responder: UIResponder? = self
+        while let current = responder {
+            if current.responds(to: selector) {
+                typealias OpenURLMethod = @convention(c) (
+                    AnyObject, Selector, NSURL, AnyObject?, AnyObject?) -> Void
+                let method = unsafeBitCast(current.method(for: selector), to: OpenURLMethod.self)
+                method(current, selector, url as NSURL, nil, nil)
+                return
+            }
+            responder = current.next
+        }
+        extensionContext?.open(url, completionHandler: nil) // last resort, historically a no-op
     }
 
     /// How the mic key arms a session (and how the bounce key revives a dead
-    /// one).
+    /// one). `source=keyboard` tells the app's router this arm came from the
+    /// keyboard: it preserves the tap's pre-posted `startDictation` across the
+    /// bring-up mailbox flush (`KeyboardSession.micTapped` posts it before
+    /// this deep link fires) and enables the session card's return-to-app
+    /// switchback — neither of which an intent / Control Center arm may
+    /// trigger, so those keep the plain URL.
     private func openMainApp() {
-        guard let url = URL(string: "whisprbro://session/start") else { return }
+        guard let url = URL(string: "whisprbro://session/start?source=keyboard") else { return }
         open(url)
     }
 

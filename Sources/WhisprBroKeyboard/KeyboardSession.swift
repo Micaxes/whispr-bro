@@ -8,7 +8,10 @@ import WhisprBroIPC
 /// only bridges the gap between posting a command and the app's next publish.
 enum MicPhase: Equatable {
     /// No session: no readable page, page reports off, or IPC is disabled
-    /// (App Group container unavailable). Tap deep-links into the app to arm.
+    /// (App Group container unavailable). Tap posts `startDictation` into the
+    /// mailbox (Wispr parity: the arming tap IS segment 1's start — the app
+    /// preserves it through its bring-up flush and executes it at goLive),
+    /// then deep-links into the app to arm.
     case idle
     /// The app is foregrounding and starting continuous capture.
     case arming
@@ -41,9 +44,18 @@ final class KeyboardSession: ObservableObject {
     @Published private(set) var phase: MicPhase = .idle
     /// Recent perceptual levels (0…1, newest last) for the waveform strip.
     @Published private(set) var levels: [Float]
-    /// "finishing in whispr bro — swipe back when armed" — shown for a few
-    /// seconds after a deep-link tap, while the page still reports no session.
+    /// The arming hint — shown for a few seconds after a deep-link tap, while
+    /// the page still reports no session. Normally "recording in whispr bro —
+    /// swipe back to see it live" (the tap pre-posted its own start, see
+    /// `micTapped`); `armingHintLiveStart` false downgrades it to the old
+    /// wait-for-arm copy.
     @Published private(set) var showsArmingHint = false
+    /// Whether the current arming hint may promise a LIVE auto-start: true
+    /// when the arming tap's pre-posted `startDictation` actually landed in
+    /// the mailbox, false when posting failed (mailbox unmappable) and the
+    /// deep link alone must arm the session — promising "recording" then
+    /// would be a lie.
+    @Published private(set) var armingHintLiveStart = false
     /// Wispr's orange-triangle equivalent: why the session just died, held
     /// keyboard-locally for ~8s of error strip (`.none` = no error showing).
     /// Armed only on an OBSERVED page flip into `.off` carrying a non-none
@@ -54,9 +66,9 @@ final class KeyboardSession: ObservableObject {
     /// Live preview of the open segment (the app's streaming SpeechTranscriber
     /// relayed through the partial page), shown in the status strip beside a
     /// compressed waveform. Non-nil ONLY while recording/transcribing AND the
-    /// page's nonce is OUR instance nonce (a preview for a segment some other
-    /// keyboard opened must never paint this host app's strip) AND the page
-    /// carries text. Nil = waveform-only, exactly today's rendering — the
+    /// page carries text — deliberately NOT nonce-gated, unlike insertion
+    /// (see `updatePartialText` for why display may relax what insertion
+    /// never does). Nil = waveform-only, exactly today's rendering — the
     /// partials-unavailable case is visually indistinguishable from before.
     @Published private(set) var partialText: String?
     /// Mirrored from `UIInputViewController.hasFullAccess` each appearance;
@@ -180,10 +192,21 @@ final class KeyboardSession: ObservableObject {
     func micTapped() {
         switch phase {
         case .idle, .bounce:
+            // Wispr parity — the arming tap IS segment 1's start: post it
+            // BEFORE deep-linking so the command is already waiting when the
+            // app arms (`SessionIPC.begin` preserves a young keyboard start
+            // through its bring-up flush and executes it at goLive), so
+            // recording runs while the user is still swiping back. `intent`
+            // deliberately stays .none: the page state wins on return — the
+            // next tick sees `.dictating` under a NEW sessionUUID (which
+            // clears intent anyway), and while the page still reads `.off`
+            // the updatePhase off-branch would wipe it within one tick.
+            let posted = post(.startDictation)
+            armingHintLiveStart = posted
             openApp?()
-            // "swipe back when armed" is only true when this keyboard can
-            // actually SEE the arm — without the App Group container the
-            // phase can never leave .idle, so the hint would be a lie.
+            // "swipe back" is only true when this keyboard can actually SEE
+            // the arm — without the App Group container the phase can never
+            // leave .idle, so the hint would be a lie.
             if ipcEnabled {
                 armingHintExpiresAtMillis = KeyboardIPC.nowMillis() + Self.armingHintMillis
             }
@@ -244,16 +267,25 @@ final class KeyboardSession: ObservableObject {
     /// clear lands, instead of blanking a frame early); any other phase
     /// clears immediately. A nil page read (torn/no truth) HOLDS the current
     /// preview — same philosophy as the status page, flicker-free by
-    /// construction. The nonce gate is the render guard documented on
-    /// `PartialSnapshot`.
+    /// construction.
+    ///
+    /// Deliberately NOT gated on the page nonce matching OUR `nonce`: the
+    /// stream is keyed to the keyboard instance that OPENED the segment, and
+    /// after the arming round trip iOS routinely presents a FRESH instance —
+    /// the auto-started segment (the preserved keyboard start) would then
+    /// never render its preview at all. Display is safe where insertion is
+    /// not: this is a read-only preview, the `.recording`/`.transcribing`
+    /// phase gate already scopes it to the live session's open segment, and
+    /// the app clears the page on every segment exit — so a stale cross-app
+    /// paint is bounded to those few ticks. Transcript INSERTION
+    /// (`consumeResults`) stays nonce-strict.
     private func updatePartialText() {
         guard phase == .recording || phase == .transcribing else {
             if partialText != nil { partialText = nil }
             return
         }
         guard let snapshot = partialReader?.read() else { return } // hold this tick
-        let next = snapshot.keyboardInstanceNonce == nonce && !snapshot.text.isEmpty
-            ? snapshot.text : nil
+        let next = snapshot.text.isEmpty ? nil : snapshot.text
         if next != partialText { partialText = next }
     }
 
