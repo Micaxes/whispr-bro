@@ -123,6 +123,79 @@ final class StatusPageTests: XCTestCase {
         XCTAssertNil(StatusPageReader(directory: directory).read(), "not our file")
     }
 
+    func testErrorCodeRoundTripsAndSurvivesTheOffTransition() throws {
+        let writer = try StatusPageWriter(directory: directory)
+        let reader = StatusPageReader(directory: directory)
+        writer.beginSession()
+        writer.transition(to: .live)
+        XCTAssertEqual(try XCTUnwrap(reader.read()).errorCode, .none)
+
+        // The app-side order: fail() stamps the code, THEN the terminal .off
+        // publish — the off page the keyboard reacts to must carry it.
+        writer.fail(code: .transcriptionFailed)
+        XCTAssertEqual(try XCTUnwrap(reader.read()).errorCode, .transcriptionFailed)
+        writer.transition(to: .off)
+        let snapshot = try XCTUnwrap(reader.read())
+        XCTAssertEqual(snapshot.sessionState, .off)
+        XCTAssertEqual(snapshot.errorCode, .transcriptionFailed)
+    }
+
+    func testErrorCodeClearsWhenTheNextSessionArms() throws {
+        let writer = try StatusPageWriter(directory: directory)
+        let reader = StatusPageReader(directory: directory)
+        writer.fail(code: .micStartFailed)
+        writer.transition(to: .off)
+        XCTAssertEqual(try XCTUnwrap(reader.read()).errorCode, .micStartFailed)
+        writer.beginSession()
+        XCTAssertEqual(
+            try XCTUnwrap(reader.read()).errorCode, .none,
+            "the error belongs to the session that died, never to the one arming over it")
+    }
+
+    func testLegacyReservedZeroByteDecodesAsNoError() throws {
+        // The no-version-bump compatibility argument from the layout doc: an
+        // old writer's page has byte 7 hardwired to zero with the CRC computed
+        // over it — byte-identical to a current writer at .none. Pin the byte
+        // and decode it explicitly.
+        let writer = try StatusPageWriter(directory: directory)
+        writer.transition(to: .live)
+        let poke = try XCTUnwrap(
+            MappedFile(url: pageURL, byteCount: StatusPage.byteCount, mode: .readOnly))
+        XCTAssertEqual(poke.loadUInt8(at: StatusPage.Offset.errorCode), 0)
+        let snapshot = try XCTUnwrap(StatusPageReader(directory: directory).read())
+        XCTAssertEqual(snapshot.errorCode, .none)
+        XCTAssertEqual(snapshot.sessionState, .live, "checksum still validates over the zero byte")
+    }
+
+    func testUnknownErrorCodeReadsAsNoneNotDeadPage() throws {
+        let writer = try StatusPageWriter(directory: directory)
+        writer.transition(to: .live)
+        // A future version-1 writer stamps a code this reader doesn't know;
+        // fix up the CRC so the page is stable and valid, not corrupt.
+        let poke = try XCTUnwrap(
+            MappedFile(url: pageURL, byteCount: StatusPage.byteCount, mode: .readWrite))
+        poke.storeUInt8(200, at: StatusPage.Offset.errorCode)
+        poke.storeUInt32(
+            CRC32.checksum(UnsafeRawBufferPointer(start: poke.base, count: StatusPage.Offset.checksum)),
+            at: StatusPage.Offset.checksum)
+        let snapshot = try XCTUnwrap(StatusPageReader(directory: directory).read())
+        XCTAssertEqual(snapshot.errorCode, .none, "an unknown code is ignorable, unlike an unknown state")
+        XCTAssertEqual(snapshot.sessionState, .live)
+    }
+
+    func testErrorCodeCorruptionFailsTheChecksum() throws {
+        let writer = try StatusPageWriter(directory: directory)
+        writer.transition(to: .live)
+        let reader = StatusPageReader(directory: directory)
+        XCTAssertNotNil(reader.read())
+        // Flip byte 7 WITHOUT fixing the CRC: it sits inside the checksummed
+        // region, so this must read as a dead page, never as a phantom error.
+        let poke = try XCTUnwrap(
+            MappedFile(url: pageURL, byteCount: StatusPage.byteCount, mode: .readWrite))
+        poke.storeUInt8(SessionErrorCode.micInterrupted.rawValue, at: StatusPage.Offset.errorCode)
+        XCTAssertNil(reader.read())
+    }
+
     func testWriterRestartInheritsGenerationAndStaysReadable() throws {
         let first = try StatusPageWriter(directory: directory)
         first.beginSession()

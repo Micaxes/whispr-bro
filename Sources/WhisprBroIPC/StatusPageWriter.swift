@@ -16,6 +16,7 @@ public final class StatusPageWriter {
     // The writer's authoritative copy of the payload; the page is a
     // projection of these.
     private var sessionState: SessionState = .off
+    private var errorCode: SessionErrorCode = .none
     private var sessionUUID = UUID(uuid: (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
     private var audioLevel: Float = 0
     private var lastCommandAckSeq: UInt32 = 0
@@ -43,10 +44,13 @@ public final class StatusPageWriter {
     }
 
     /// A session is arming: fresh sessionUUID (the keyboard detects a session
-    /// restart beneath it by this changing), audio fields reset.
+    /// restart beneath it by this changing), audio fields reset, and any
+    /// previous session's death code cleared — the error belongs to the
+    /// session that died, never to the one arming over it.
     public func beginSession(sessionUUID: UUID = UUID()) {
         self.sessionUUID = sessionUUID
         sessionState = .arming
+        errorCode = .none
         audioLevel = 0
         lastAudioCallbackAtMillis = 0
         publish()
@@ -54,6 +58,15 @@ public final class StatusPageWriter {
 
     public func transition(to state: SessionState) {
         sessionState = state
+        publish()
+    }
+
+    /// Stamp why the session is dying (`SessionErrorCode`). Called immediately
+    /// BEFORE the terminal `.off` transition, so the keyboard's next stable
+    /// read of the off page carries the code; it stays on the page until the
+    /// next `beginSession` (or a fresh writer) clears it.
+    public func fail(code: SessionErrorCode) {
+        errorCode = code
         publish()
     }
 
@@ -81,7 +94,7 @@ public final class StatusPageWriter {
         map.storeUInt32(StatusPage.magic, at: StatusPage.Offset.magic)
         map.storeUInt16(StatusPage.version, at: StatusPage.Offset.version)
         map.storeUInt8(sessionState.rawValue, at: StatusPage.Offset.sessionState)
-        map.storeUInt8(0, at: StatusPage.Offset.sessionState + 1) // reserved
+        map.storeUInt8(errorCode.rawValue, at: StatusPage.Offset.errorCode)
         map.storeUUID(sessionUUID, at: StatusPage.Offset.sessionUUID)
         map.storeFloat(audioLevel, at: StatusPage.Offset.audioLevel)
         map.storeUInt32(lastCommandAckSeq, at: StatusPage.Offset.lastCommandAckSeq)

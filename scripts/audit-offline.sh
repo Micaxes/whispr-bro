@@ -160,6 +160,18 @@ fi
 #   ^__?OBJC          ObjC metadata (_OBJC_/__OBJC_… class & protocol records)
 #   ^_\$s10FluidAudio  Swift symbol whose owning module is FluidAudio
 #   FoundationE        a Foundation-declared extension thunk (…C10FoundationE…)
+#   ^_\$sSo…NSURLSession  compiler-emitted ObjC-interop scaffolding for the
+#                      imported NSURLSession family (metadata accessors …CMa/
+#                      …CML, allocating-init thunks …fCTO). Emitted into
+#                      whichever binary CALLS URLSession(configuration:…) —
+#                      here the statically linked FluidAudio downloader
+#                      (ModelRegistry + DownloadUtils; unoptimized iOS builds
+#                      keep them, release folds them away) — but mangled with
+#                      NO owning module, so token attribution is impossible.
+#                      Allowing them opens no hole: Tier 0 proves our own
+#                      source makes no URLSession call, and a NEW third-party
+#                      networking module still fails via its own module-owned
+#                      URLSession symbols (the FluidAudio-style set above).
 # A floating 'Foundation' would be wrong: nearly every URLSession symbol merely
 # REFERENCES a Foundation type (URL/Data as 10Foundation3URLV/4DataV) in its
 # signature, so a genuinely new third-party networking symbol would be misread
@@ -167,7 +179,7 @@ fi
 # Foundation, which third-party code cannot emit. This survives Swift/Xcode
 # bumps (which reshuffle mangled suffixes) that a literal baseline would false-
 # fail on. The baseline file is kept only as a human-readable drift log.
-VENDOR_RE='^__?OBJC|^_\$s10FluidAudio|10FluidAudioE|10FoundationE'
+VENDOR_RE='^__?OBJC|^_\$s10FluidAudio|10FluidAudioE|10FoundationE|^_\$sSo[0-9]+NSURLSession'
 cur="$(printf '%s\n' "${all_tier2[@]:-}" | grep -E '.' | sort -u || true)"
 if [[ -z "$cur" ]]; then
   echo "✓ TIER 2 — no NSURLSession/URLSession surface at all"

@@ -136,7 +136,10 @@ struct SettingsSheet: View {
             footer("Dictating from the whispr keyboard runs a session: the mic is honestly "
                 + "live the whole time (the indicator stays on — that's the point, not a "
                 + "leak), audio never leaves this device, and you can kill the session any "
-                + "time from the Live Activity. Pick how long an idle session stays armed.")
+                + "time from the Live Activity. Pick how long an idle session stays armed. "
+                + "Arm one hands-free too: \u{201C}Start Whispr Session\u{201D} lives in "
+                + "Control Center, and works from the Action Button or Back Tap via "
+                + "Shortcuts.")
         }
         .listRowBackground(Brand.raised)
     }
@@ -145,7 +148,8 @@ struct SettingsSheet: View {
         switch option {
         case .immediately: "Mic closes as soon as your text lands"
         case .fiveMinutes: "Stay armed for quick back-to-back dictations"
-        case .fifteenMinutes: "Longest the mic will wait between dictations"
+        case .fifteenMinutes: "Stay armed through a longer writing stretch"
+        case .sixtyMinutes: "Longest the mic will wait between dictations"
         }
     }
 

@@ -16,9 +16,18 @@ enum CRC32 {
     }
 
     static func checksum(_ bytes: UnsafeRawBufferPointer) -> UInt32 {
+        checksum(regions: [bytes])
+    }
+
+    /// Multi-region form, equivalent to checksumming the concatenation — for
+    /// layouts whose checksummed bytes are not contiguous (the partial page:
+    /// header, then text on the far side of the checksum + generation words).
+    static func checksum(regions: [UnsafeRawBufferPointer]) -> UInt32 {
         var crc: UInt32 = 0xFFFF_FFFF
-        for byte in bytes {
-            crc = table[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8)
+        for bytes in regions {
+            for byte in bytes {
+                crc = table[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8)
+            }
         }
         return crc ^ 0xFFFF_FFFF
     }

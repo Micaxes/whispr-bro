@@ -4,8 +4,9 @@
 <dict>
 	<!-- Shared container: app installs/manages models + settings, the keyboard
 	     extension reads them (issue #13 §App Group). -->
-	<!-- App Group stripped for free-team signing: the App ID registration
-	     expired (free teams re-register via Xcode GUI only). Committed version
-	     keeps the group; restore on paid enrollment. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.com.micaxes.whispr-bro</string>
+	</array>
 </dict>
 </plist>

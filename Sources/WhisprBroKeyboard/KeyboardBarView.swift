@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import WhisprBroIPC
 
 /// Brand palette subset plus — new for this codebase — dark-mode-aware key
 /// colors. `Brand` in the apps is AppKit/UIKit-bound and the appex links
@@ -219,7 +220,9 @@ private struct SettingsKey: View {
 // MARK: - Status strip
 
 /// The toolbar's flexible middle: a mini ink pebble (like the mac HUD) that
-/// shows the live waveform while recording and a mono status line otherwise.
+/// shows the live waveform while recording — joined by the streaming partial
+/// preview when one is flowing (`KeyboardSession.partialText`) — and a mono
+/// status line otherwise.
 /// When IPC is disabled (`KeyboardSession.ipcEnabled` false — App Group
 /// container unavailable, `SharedContainer`'s documented degraded mode) the
 /// idle line tells the truth instead of promising an arming flow that can
@@ -230,11 +233,35 @@ private struct StatusStrip: View {
     var body: some View {
         ZStack {
             if session.phase == .recording {
-                Waveform(levels: session.levels)
+                if let partial = session.partialText {
+                    // Live preview: waveform compressed to a small leading
+                    // strip (the NEWEST 10 levels — 28 bars at fixed spacing
+                    // would overflow 44pt), the TAIL of the preview trailing-
+                    // aligned beside it (head truncation — the newest speech
+                    // is what matters). Paper on ink, like the waveform: the
+                    // pebble is a fixed-brand surface, not an adaptive key.
+                    HStack(spacing: 10) {
+                        Waveform(levels: Array(session.levels.suffix(10)))
+                            .frame(width: 44)
+                            .padding(.vertical, 8)
+                        Text(partial)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Palette.paper)
+                            .lineLimit(2)
+                            .truncationMode(.head)
+                            .multilineTextAlignment(.trailing)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                } else {
+                    // No partials (assets not installed, degraded IPC…):
+                    // exactly today's waveform-only strip.
+                    Waveform(levels: session.levels)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
             } else {
-                Text(label)
+                line
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundStyle(labelColor)
                     .lineLimit(2)
@@ -249,6 +276,38 @@ private struct StatusStrip: View {
                 .fill(Palette.ink)
                 .overlay(Capsule().strokeBorder(Palette.pebbleBorder, lineWidth: 1))
         )
+    }
+
+    /// The non-waveform strip content, as `Text` (not `String`) so the error
+    /// state can inline its triangle glyph in the same run — Wispr's orange
+    /// triangle, in brand signal.
+    private var line: Text {
+        showsError
+            ? Text("\(Image(systemName: "exclamationmark.triangle.fill")) \(errorCopy)")
+            : Text(label)
+    }
+
+    /// Error strip precedence: only over the idle label. A pending transcript
+    /// beats it (that key is the more actionable state and the mic key is
+    /// already re-themed for it), and a mic tap mid-error hands the strip to
+    /// the arming hint — the retry deep-link is the answer to every one of
+    /// these errors, so the "it's in progress" line supersedes the complaint.
+    /// Only a RETRY tap's hint can be live here: the hint opened by the tap
+    /// that CAUSED the failure is killed when the error latches
+    /// (`KeyboardSession.updateSessionError`) — it outlives the error hold,
+    /// so left alive it would mask micStartFailed for its whole life.
+    private var showsError: Bool {
+        session.phase == .idle && session.sessionError != .none && !session.showsArmingHint
+    }
+
+    private var errorCopy: String {
+        switch session.sessionError {
+        case .none: "" // unreachable behind showsError
+        case .micStartFailed: "couldn't start audio capture — tap mic to retry"
+        case .micInterrupted: "mic taken by another app"
+        case .modelLoadFailed: "model failed to load — open whispr bro"
+        case .transcriptionFailed: "transcription failed — try again"
+        }
     }
 
     private var label: String {
@@ -275,7 +334,7 @@ private struct StatusStrip: View {
     }
 
     private var labelColor: Color {
-        session.phase == .bounce ? Palette.signal : Palette.lightMono
+        session.phase == .bounce || showsError ? Palette.signal : Palette.lightMono
     }
 }
 

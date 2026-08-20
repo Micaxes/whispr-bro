@@ -4,6 +4,9 @@ import Foundation
 /// keyboard's ~20Hz poll can cheaply skip no-op UI updates.
 public struct StatusSnapshot: Equatable {
     public let sessionState: SessionState
+    /// Why the last session died (`.none` while healthy) — meaningful on an
+    /// `.off` page, where the keyboard surfaces it as the error strip.
+    public let errorCode: SessionErrorCode
     public let sessionUUID: UUID
     public let audioLevel: Float
     public let lastCommandAckSeq: UInt32
@@ -11,12 +14,14 @@ public struct StatusSnapshot: Equatable {
 
     public init(
         sessionState: SessionState,
+        errorCode: SessionErrorCode,
         sessionUUID: UUID,
         audioLevel: Float,
         lastCommandAckSeq: UInt32,
         lastAudioCallbackAtMillis: UInt64
     ) {
         self.sessionState = sessionState
+        self.errorCode = errorCode
         self.sessionUUID = sessionUUID
         self.audioLevel = audioLevel
         self.lastCommandAckSeq = lastCommandAckSeq
@@ -93,6 +98,10 @@ public final class StatusPageReader {
         }
         return StatusSnapshot(
             sessionState: state,
+            // An unrecognized code (a future writer within version 1) decodes
+            // as .none, not a dead page — unlike sessionState, the keyboard
+            // can do nothing useful with a code it doesn't know.
+            errorCode: SessionErrorCode(rawValue: bytes[StatusPage.Offset.errorCode]) ?? .none,
             sessionUUID: UUID(uuid: uuid),
             audioLevel: Float(bitPattern: u32(StatusPage.Offset.audioLevel)),
             lastCommandAckSeq: u32(StatusPage.Offset.lastCommandAckSeq),

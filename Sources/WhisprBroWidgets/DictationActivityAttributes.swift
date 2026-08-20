@@ -8,11 +8,16 @@ import Foundation
 /// activity to the widget's `ActivityConfiguration` by this attributes type,
 /// so the one definition is shared, never duplicated.
 struct DictationActivityAttributes: ActivityAttributes {
-    /// Dictation phase — drives the island/Lock Screen copy. `recording` is
-    /// the only phase with a live Stop button; `transcribing`/`done` exist so
-    /// the activity can show the pipeline landing instead of vanishing at the
+    /// Dictation phase — drives the island/Lock Screen copy. `sessionLive` is
+    /// an ARMED keyboard session (mic honestly live, no segment open — issue
+    /// #13 P4): steady mic, "dictate from the whispr key"; `SessionController`
+    /// flips it to `recording` (pulsing signal mic) per segment. The Stop
+    /// button is live in BOTH mic-live phases — for a session it routes into
+    /// `SessionController.endSession`; `transcribing`/`done` exist so the
+    /// activity can show the pipeline landing instead of vanishing at the
     /// instant the mic closes.
     enum Phase: String, Codable, Hashable {
+        case sessionLive
         case recording
         case transcribing
         case done
@@ -26,8 +31,10 @@ struct DictationActivityAttributes: ActivityAttributes {
         var level: Double
     }
 
-    /// Recording start — the elapsed timer renders from this via
-    /// `Text(_:style:.timer)`, needing zero activity updates to tick.
+    /// Mic-live start (recording start, or session arming for the keyboard
+    /// flow) — the elapsed timer renders from this via `Text(_:style:.timer)`,
+    /// needing zero activity updates to tick: honest "mic has been live this
+    /// long", whichever flow lit it.
     var startedAt: Date
 }
 

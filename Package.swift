@@ -3,7 +3,10 @@ import PackageDescription
 
 let package = Package(
     name: "whispr-bro",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    // iOS floor matches ios/project.yml's deploymentTarget 26.0 — the package
+    // and the Xcode wrapper must agree or #available checks drift. String
+    // form because `.v26` needs tools-version 6.2 and this manifest is 5.10.
+    platforms: [.macOS(.v14), .iOS("26.0")],
     products: [
         .library(name: "WhisprBroCore", targets: ["WhisprBroCore"]),
         .library(name: "WhisprBroIPC", targets: ["WhisprBroIPC"]),

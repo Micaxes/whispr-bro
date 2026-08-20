@@ -7,11 +7,13 @@ import WidgetKit
 /// to `StopDictationIntent` (which executes in the app process). This is the
 /// platform-contract half of `StartDictationIntent` — an
 /// `AudioRecordingIntent` recording is stopped by the system without a
-/// visible Live Activity.
+/// visible Live Activity. The bundle also hosts `StartSessionControl`, the
+/// Control Center session-arming button (issue #13 P5).
 @main
 struct WhisprBroWidgetsBundle: WidgetBundle {
     var body: some Widget {
         DictationLiveActivity()
+        StartSessionControl()
     }
 }
 
@@ -33,7 +35,12 @@ struct DictationLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(spacing: 12) {
-                        LevelBar(level: context.state.level)
+                        if context.state.phase == .sessionLive {
+                            ArmedHint()
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        } else {
+                            LevelBar(level: context.state.level)
+                        }
                         StopButton(phase: context.state.phase)
                     }
                     .padding(.top, 6)
@@ -61,8 +68,12 @@ private struct LockScreenDictationView: View {
                 Text("whispr bro")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(WidgetBrand.paper)
-                LevelBar(level: context.state.level)
-                    .frame(width: 110)
+                if context.state.phase == .sessionLive {
+                    ArmedHint()
+                } else {
+                    LevelBar(level: context.state.level)
+                        .frame(width: 110)
+                }
             }
             Spacer()
             ElapsedOrPhaseText(context: context)
@@ -72,14 +83,15 @@ private struct LockScreenDictationView: View {
     }
 }
 
-/// Recording → live timer from `startedAt` (ticks with no updates);
-/// otherwise the phase label, so "stop" visibly hands over to the pipeline.
+/// Mic-live phases (armed session / recording) → live timer from `startedAt`
+/// (ticks with no updates — honest "mic has been live this long"); otherwise
+/// the phase label, so "stop" visibly hands over to the pipeline.
 private struct ElapsedOrPhaseText: View {
     let context: ActivityViewContext<DictationActivityAttributes>
 
     var body: some View {
         switch context.state.phase {
-        case .recording:
+        case .sessionLive, .recording:
             Text(context.attributes.startedAt, style: .timer)
                 .font(.system(size: 15, weight: .medium).monospacedDigit())
                 .foregroundStyle(WidgetBrand.paper)
@@ -96,13 +108,20 @@ private struct ElapsedOrPhaseText: View {
     }
 }
 
+/// Steady paper mic while a session is merely armed vs the pulsing
+/// signal-red mic while audio is actually being taken down — the compact
+/// island glance tells the two mic-live states apart at a glance.
 private struct PhaseIcon: View {
     let phase: DictationActivityAttributes.Phase
 
     var body: some View {
         switch phase {
+        case .sessionLive:
+            Image(systemName: "mic.fill").foregroundStyle(WidgetBrand.paper)
         case .recording:
-            Image(systemName: "mic.fill").foregroundStyle(WidgetBrand.signal)
+            Image(systemName: "mic.fill")
+                .foregroundStyle(WidgetBrand.signal)
+                .symbolEffect(.pulse)
         case .transcribing:
             Image(systemName: "waveform").foregroundStyle(WidgetBrand.paper)
         case .done:
@@ -129,8 +148,26 @@ private struct LevelBar: View {
     }
 }
 
+/// The armed-session line (`.sessionLive` only). Deliberately no
+/// re-dictate-from-island button: inserting text needs the whispr keyboard
+/// frontmost, so the island can only point there, never start a segment.
+private struct ArmedHint: View {
+    var body: some View {
+        Text("armed — dictate from the whispr key")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(WidgetBrand.mist)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+    }
+}
+
 private struct StopButton: View {
     let phase: DictationActivityAttributes.Phase
+
+    /// Live in BOTH mic-live phases: for a session (`.sessionLive` or a
+    /// dictating segment) `DictationIntentHooks.stop` routes into
+    /// `SessionController.endSession`.
+    private var micLive: Bool { phase == .sessionLive || phase == .recording }
 
     var body: some View {
         Button(intent: StopDictationIntent()) {
@@ -141,8 +178,8 @@ private struct StopButton: View {
                 .background(WidgetBrand.paper, in: Circle())
         }
         .buttonStyle(.plain)
-        .disabled(phase != .recording)
-        .opacity(phase == .recording ? 1 : 0.35)
+        .disabled(!micLive)
+        .opacity(micLive ? 1 : 0.35)
     }
 }
 

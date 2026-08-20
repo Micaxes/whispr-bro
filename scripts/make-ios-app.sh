@@ -61,22 +61,54 @@ case "$MODE" in
     # CODE_SIGNING_ALLOWED=NO: catch compile/link errors on any machine
     # without an identity or provisioning profile. Pinned derivedDataPath so
     # the produced binary is findable for the symbol audit below.
+    # ENABLE_DEBUG_DYLIB=NO: Debug builds otherwise split the real code into
+    # <name>.debug.dylib behind a ~70KB previews-shim executable — the symbol
+    # audits below would inspect the shim and certify nothing.
     DDATA="$ROOT/.build/ios-ddata"
     xcodebuild -project "$PROJECT" -scheme WhisprBroiOS \
       -destination generic/platform=iOS \
       -derivedDataPath "$DDATA" \
       CODE_SIGNING_ALLOWED=NO \
+      ENABLE_DEBUG_DYLIB=NO \
       build
     # Tier 1/2 symbol audit of the iOS Mach-O (Tier 0 already scans all Swift
     # sources) — the zero-network guarantee is per-binary, not per-platform.
-    IOS_BIN="$DDATA/Build/Products/Debug-iphoneos/WhisprBroiOS.app/WhisprBroiOS"
+    IOS_APP="$DDATA/Build/Products/Debug-iphoneos/WhisprBroiOS.app"
+    IOS_BIN="$IOS_APP/WhisprBroiOS"
+    # Shim-audit guard: if the split happened anyway (setting renamed or
+    # ignored by a future Xcode), every executable here is a shim — fail
+    # rather than hand the audit a decoy.
+    if find "$IOS_APP" -name '*.debug.dylib' | grep -q .; then
+      echo "FAIL: .debug.dylib present — ENABLE_DEBUG_DYLIB=NO was ignored, audit would inspect preview shims" >&2
+      exit 1
+    fi
     if [[ -f "$IOS_BIN" ]]; then
       "$ROOT/scripts/audit-offline.sh" "$IOS_BIN"
     else
       echo "FAIL: iOS binary not found at $IOS_BIN for the offline audit" >&2
       exit 1
     fi
-    echo "done: compile-check + iOS offline audit passed (unsigned, no bundle produced)"
+    # The appexes are separate Mach-Os with their own symbol tables — the
+    # per-binary guarantee must cover them too. Executable name == appex
+    # basename (PRODUCT_NAME defaults to the target name in project.yml).
+    AUDITED=0
+    for APPEX in "$IOS_APP"/PlugIns/*.appex; do
+      [[ -d "$APPEX" ]] || continue # unmatched glob stays literal under bash 3.2
+      APPEX_BIN="$APPEX/$(basename "$APPEX" .appex)"
+      if [[ ! -f "$APPEX_BIN" ]]; then
+        echo "FAIL: appex executable not found at $APPEX_BIN for the offline audit" >&2
+        exit 1
+      fi
+      "$ROOT/scripts/audit-offline.sh" "$APPEX_BIN"
+      AUDITED=$((AUDITED + 1))
+    done
+    # project.yml embeds keyboard + widgets — fewer means the build layout
+    # changed under the audit's feet, which must fail loudly, not skip.
+    if [[ "$AUDITED" -lt 2 ]]; then
+      echo "FAIL: expected keyboard + widgets appexes under $IOS_APP/PlugIns, audited $AUDITED" >&2
+      exit 1
+    fi
+    echo "done: compile-check + iOS offline audit passed (app + $AUDITED appexes; unsigned)"
     ;;
   release)
     : "${WHISPR_DEV_TEAM:?set WHISPR_DEV_TEAM to your Apple Team ID}"

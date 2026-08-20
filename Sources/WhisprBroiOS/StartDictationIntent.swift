@@ -183,7 +183,9 @@ enum DictationActivityController {
     private static var activity: Activity<DictationActivityAttributes>?
     private static var observer: Task<Void, Never>?
 
-    static func start() async throws {
+    /// `phase` defaults to `.recording` (the row-8 probe / quick-dictation
+    /// path); `SessionController` arms with `.sessionLive` instead.
+    static func start(phase: DictationActivityAttributes.Phase = .recording) async throws {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             throw ProbeFailure("Live Activities are disabled for whispr bro")
         }
@@ -195,7 +197,16 @@ enum DictationActivityController {
         activity = try Activity.request(
             attributes: DictationActivityAttributes(startedAt: Date()),
             content: ActivityContent(
-                state: .init(phase: .recording, level: 0), staleDate: nil))
+                state: .init(phase: phase, level: 0), staleDate: nil))
+    }
+
+    /// Session-facing phase mirror (`SessionController`): flips the armed
+    /// session's activity between `.sessionLive` (idle, steady mic) and
+    /// `.recording` (segment open, pulsing mic). Level stays 0 — the session's
+    /// ~30Hz level heartbeat feeds the KEYBOARD's status page, not
+    /// ActivityKit's update budget.
+    static func updateSession(phase: DictationActivityAttributes.Phase) async {
+        await update(phase: phase, level: 0)
     }
 
     static func observe(_ model: DictationModel) {
@@ -248,8 +259,9 @@ struct ProbeFailure: LocalizedError {
     var errorDescription: String? { message }
 }
 
-/// Registers the intent as an App Shortcut: assignable to the Action Button
-/// and visible in Spotlight/Shortcuts with zero user setup.
+/// Registers the intents as App Shortcuts: assignable to the Action Button /
+/// Back Tap and visible in Siri/Spotlight/Shortcuts with zero user setup —
+/// both modes: quick dictation (pasteboard) and session arming (keyboard).
 struct WhisprBroShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
@@ -260,5 +272,14 @@ struct WhisprBroShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Start Dictation",
             systemImageName: "mic.fill")
+        AppShortcut(
+            intent: StartSessionIntent(),
+            phrases: [
+                "Start a whispr session with \(.applicationName)",
+                "Start a \(.applicationName) session",
+                "Arm a \(.applicationName) session",
+            ],
+            shortTitle: "Start Session",
+            systemImageName: "mic.badge.plus")
     }
 }

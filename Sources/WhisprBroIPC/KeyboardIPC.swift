@@ -9,16 +9,17 @@ import Foundation
 /// FluidAudio / GRDB (~48MB jetsam floor), and POSIX mmap keeps it
 /// platform-neutral so `swift test` covers it on macOS.
 ///
-/// The App Group container carries exactly three artifacts — the status page
-/// (app → keyboard), the command mailbox (keyboard → app), and transcript
-/// results — and nothing else. Not UserDefaults, not CFMessagePort
-/// (sandbox-blocked on iOS). Audio never enters the container: PCM lives only
-/// in a bounded in-process ring inside the main app (90s cap @ 16kHz mono
-/// Float32 ≈ 5.6MB — trivially in-RAM). Shared-container PCM would be flash
-/// wear + file-protection complexity + sensitive audio at rest, for a reader
-/// (the keyboard) that can never consume audio anyway. The keyboard's ~48MB
-/// jetsam floor is the design ceiling for everything this extension maps or
-/// reads; each mmap file below fits in a single 16KB VM page.
+/// The App Group container carries exactly four artifacts — the status page
+/// (app → keyboard), the partial page (app → keyboard, live-preview text),
+/// the command mailbox (keyboard → app), and transcript results — and nothing
+/// else. Not UserDefaults, not CFMessagePort (sandbox-blocked on iOS). Audio
+/// never enters the container: PCM lives only in a bounded in-process ring
+/// inside the main app (90s cap @ 16kHz mono Float32 ≈ 5.6MB — trivially
+/// in-RAM). Shared-container PCM would be flash wear + file-protection
+/// complexity + sensitive audio at rest, for a reader (the keyboard) that can
+/// never consume audio anyway. The keyboard's ~48MB jetsam floor is the
+/// design ceiling for everything this extension maps or reads; each mmap file
+/// below fits in a single 16KB VM page.
 ///
 /// Both hot-path files are explicit fixed-layout binary, all fields
 /// little-endian (every supported device is LE arm64; stated so a hex dump is
@@ -32,6 +33,10 @@ public enum KeyboardIPC {
     /// Status page (app-owned, app is the single writer), relative to the
     /// container root. Byte layout in `StatusPage`.
     public static let statusPageFileName = "session.status"
+    /// Partial page (app-owned, app is the single writer): the live-preview
+    /// transcript for the OPEN dictation segment. Byte layout in
+    /// `PartialPage`.
+    public static let partialPageFileName = "session.partial"
     /// Command mailbox (keyboard-owned, keyboard is the single writer). Byte
     /// layout in `CommandMailbox`.
     public static let commandMailboxFileName = "session.mailbox"
@@ -71,6 +76,24 @@ public enum SessionState: UInt8 {
     case dictating = 3
 }
 
+/// Why the last session died (raw value = the byte at
+/// `StatusPage.Offset.errorCode`) — the keyboard's Wispr-style error strip
+/// reads this off the terminal `.off` page instead of failing silently. The
+/// app stamps a code (`StatusPageWriter.fail`) immediately before the `.off`
+/// transition that ends the session, and `beginSession` clears it when the
+/// next session arms; `.none` is the steady state.
+public enum SessionErrorCode: UInt8 {
+    case none = 0
+    /// `startSession` could not start continuous capture.
+    case micStartFailed = 1
+    /// The system interrupted the audio session (call, Siri, another app).
+    case micInterrupted = 2
+    /// The shared pipeline never reached ready for this segment.
+    case modelLoadFailed = 3
+    /// The pipeline threw while transcribing the segment.
+    case transcriptionFailed = 4
+}
+
 /// Commands the keyboard may post (raw value = the command byte in a mailbox
 /// record).
 public enum KeyboardCommand: UInt8 {
@@ -87,7 +110,17 @@ public enum KeyboardCommand: UInt8 {
 ///     0       4     magic                      UInt32  0x5742_5350 "WBSP"
 ///     4       2     version                    UInt16  currently 1
 ///     6       1     sessionState               UInt8   `SessionState` raw value
-///     7       1     reserved                   zero
+///     7       1     errorCode                  UInt8   `SessionErrorCode` raw
+///                                              value. Repurposed from
+///                                              reserved-zero WITHOUT a version
+///                                              bump, safely: the byte was
+///                                              always inside the checksummed
+///                                              region, old writers keep
+///                                              emitting 0 (= none) and old
+///                                              readers never look at it, so a
+///                                              mixed keyboard/app pair keeps
+///                                              working in both directions —
+///                                              it just surfaces no errors
 ///     8       16    sessionUUID                raw uuid_t bytes; regenerated
 ///                                              each time a session arms, so
 ///                                              the keyboard can detect a
@@ -121,12 +154,72 @@ public enum StatusPage {
         public static let magic = 0
         public static let version = 4
         public static let sessionState = 6
+        public static let errorCode = 7
         public static let sessionUUID = 8
         public static let audioLevel = 24
         public static let lastCommandAckSeq = 28
         public static let lastAudioCallbackAtMillis = 32
         public static let checksum = 40
         public static let generation = 44
+    }
+}
+
+/// PARTIAL PAGE — app → keyboard, mmap'd, exactly one writer (the app, on its
+/// control queue) and one reader (the keyboard). The live-preview transcript
+/// for the open dictation segment: the app's streaming SpeechTranscriber
+/// (volatile + finalized results) republishes here at ~10Hz; the keyboard
+/// renders it on its existing ~20Hz poll. Display-only by contract — the
+/// final transcript still travels exclusively through `TranscriptResult`, so
+/// a dead/garbled partial page degrades to "no preview", never to wrong text.
+/// 2048 bytes, fixed layout:
+///
+///     offset  size  field
+///     0       4     magic                  UInt32  0x5742_5054 "WBPT"
+///     4       2     version                UInt16  currently 1
+///     6       2     textByteCount          UInt16  0…2016; > capacity = dead
+///                                          page (never truncate-on-read)
+///     8       16    keyboardInstanceNonce  raw uuid_t — the START command's
+///                                          nonce, echoed so a keyboard
+///                                          renders ONLY partials for a
+///                                          segment it initiated itself (the
+///                                          `TranscriptResult` stale-target
+///                                          reasoning, applied to previews)
+///     24      4     checksum               UInt32  CRC-32 (zlib/IEEE) of
+///                                          bytes 0..<24 + the textByteCount
+///                                          USED text bytes — the unused text
+///                                          tail is dead bytes, deliberately
+///                                          outside the checksum
+///     28      4     generation             UInt32  seqlock, outside the
+///                                          checksum — same protocol as
+///                                          `StatusPage` (odd = in progress)
+///     32      2016  text                   UTF-8, tail-kept: when the
+///                                          segment's text exceeds capacity
+///                                          the writer keeps the TAIL,
+///                                          dropping whole leading Characters
+///                                          so a multi-byte sequence is never
+///                                          split (the preview shows the most
+///                                          recent speech; the full text
+///                                          arrives via the result drop)
+///
+/// 2016 bytes ≈ 500+ words of preview — far beyond what the keyboard's
+/// two-line strip can show, so tail-clamping is invisible in practice while
+/// keeping the whole page inside one 16KB VM page with the same single-copy
+/// mmap discipline as the status page.
+public enum PartialPage {
+    public static let magic: UInt32 = 0x5742_5054
+    public static let version: UInt16 = 1
+    public static let byteCount = 2048
+    /// Text-region capacity: `byteCount` minus the 32-byte header.
+    public static let textCapacity = 2016
+
+    public enum Offset {
+        public static let magic = 0
+        public static let version = 4
+        public static let textByteCount = 6
+        public static let keyboardInstanceNonce = 8
+        public static let checksum = 24
+        public static let generation = 28
+        public static let text = 32
     }
 }
 

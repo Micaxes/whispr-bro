@@ -44,6 +44,21 @@ final class KeyboardSession: ObservableObject {
     /// "finishing in whispr bro — swipe back when armed" — shown for a few
     /// seconds after a deep-link tap, while the page still reports no session.
     @Published private(set) var showsArmingHint = false
+    /// Wispr's orange-triangle equivalent: why the session just died, held
+    /// keyboard-locally for ~8s of error strip (`.none` = no error showing).
+    /// Armed only on an OBSERVED page flip into `.off` carrying a non-none
+    /// code — a fresh keyboard mounting over an old failed page must never
+    /// resurface a stale error — and cleared early the moment the page leaves
+    /// `.off` (the retry is visibly underway).
+    @Published private(set) var sessionError: SessionErrorCode = .none
+    /// Live preview of the open segment (the app's streaming SpeechTranscriber
+    /// relayed through the partial page), shown in the status strip beside a
+    /// compressed waveform. Non-nil ONLY while recording/transcribing AND the
+    /// page's nonce is OUR instance nonce (a preview for a segment some other
+    /// keyboard opened must never paint this host app's strip) AND the page
+    /// carries text. Nil = waveform-only, exactly today's rendering — the
+    /// partials-unavailable case is visually indistinguishable from before.
+    @Published private(set) var partialText: String?
     /// Mirrored from `UIInputViewController.hasFullAccess` each appearance;
     /// false swaps the mic + strip for the inline explainer panel.
     @Published var hasFullAccess = true
@@ -78,12 +93,15 @@ final class KeyboardSession: ObservableObject {
     /// "no session" — a single torn-read tick must not drop a live phase.
     private static let nilReadsForNoSession = 5
     private static let armingHintMillis: UInt64 = 12_000
+    /// How long the error strip holds after a session dies with a code.
+    private static let sessionErrorMillis: UInt64 = 8_000
     /// A posted stop whose result never lands falls back to the page state
     /// after this long (the result may still arrive later as a pending key).
     private static let resultWaitMillis: UInt64 = 30_000
 
     private let container: URL?
     private let reader: StatusPageReader?
+    private let partialReader: PartialPageReader?
     private var writer: CommandMailboxWriter?
 
     private var pollTimer: Timer?
@@ -105,6 +123,13 @@ final class KeyboardSession: ObservableObject {
     private var consecutiveNilReads = 0
     private var pendingResults: [TranscriptResultRecord] = []
     private var armingHintExpiresAtMillis: UInt64 = 0
+    /// Last stable page (state + uuid) for the error-strip transition gate:
+    /// separate from `lastSessionUUID` (which `tick` mutates before the phase
+    /// pass) and nil until the FIRST stable read, so mounting over a page
+    /// that already says off-with-error shows nothing.
+    private var lastPageState: SessionState?
+    private var lastPageUUID: UUID?
+    private var sessionErrorExpiresAtMillis: UInt64 = 0
 
     /// `container` nil (App Group entitlement absent — the current
     /// free-personal-team configuration) is the degraded mode: no reader, no
@@ -113,6 +138,7 @@ final class KeyboardSession: ObservableObject {
     init(container: URL? = SharedContainer.url()) {
         self.container = container
         reader = container.map { StatusPageReader(directory: $0) }
+        partialReader = container.map { PartialPageReader(directory: $0) }
         levels = Array(repeating: 0, count: Self.waveformBarCount)
     }
 
@@ -155,7 +181,12 @@ final class KeyboardSession: ObservableObject {
         switch phase {
         case .idle, .bounce:
             openApp?()
-            armingHintExpiresAtMillis = KeyboardIPC.nowMillis() + Self.armingHintMillis
+            // "swipe back when armed" is only true when this keyboard can
+            // actually SEE the arm — without the App Group container the
+            // phase can never leave .idle, so the hint would be a lie.
+            if ipcEnabled {
+                armingHintExpiresAtMillis = KeyboardIPC.nowMillis() + Self.armingHintMillis
+            }
         case .armed:
             if post(.startDictation) {
                 intent = .startPosted
@@ -201,8 +232,62 @@ final class KeyboardSession: ObservableObject {
             consecutiveNilReads += 1
         }
         consumeResults() // poll backstop behind the coalescing result hint
+        updateSessionError(snapshot)
         updateLevels(snapshot)
         updatePhase(snapshot)
+        updatePartialText()
+    }
+
+    /// The live-preview leg of the tick, after `updatePhase` so it sees this
+    /// tick's phase. Read only while recording/transcribing (transcribing
+    /// keeps the last preview up the few ticks until the app's stop-path
+    /// clear lands, instead of blanking a frame early); any other phase
+    /// clears immediately. A nil page read (torn/no truth) HOLDS the current
+    /// preview — same philosophy as the status page, flicker-free by
+    /// construction. The nonce gate is the render guard documented on
+    /// `PartialSnapshot`.
+    private func updatePartialText() {
+        guard phase == .recording || phase == .transcribing else {
+            if partialText != nil { partialText = nil }
+            return
+        }
+        guard let snapshot = partialReader?.read() else { return } // hold this tick
+        let next = snapshot.keyboardInstanceNonce == nonce && !snapshot.text.isEmpty
+            ? snapshot.text : nil
+        if next != partialText { partialText = next }
+    }
+
+    /// The error-strip state machine (see `sessionError`). The trigger is a
+    /// page CHANGE landing on `.off` with a code: either the state flipped
+    /// off beneath us, or the sessionUUID changed while off — that second leg
+    /// catches an arm-and-die faster than one poll tick (mic start fails
+    /// within `beginSession`'s arming window, so the only trace is a new uuid
+    /// on an off page). Requiring a previously-observed page keeps a fresh
+    /// keyboard from resurfacing a failure of unknowable age, and gating on
+    /// change (not presence) is what lets the ~8s hold actually expire while
+    /// the failed page sits there unchanged.
+    private func updateSessionError(_ snapshot: StatusSnapshot?) {
+        guard let snapshot else { return } // no truth this tick: hold as-is
+        let now = KeyboardIPC.nowMillis()
+        let pageChanged = lastPageState != snapshot.sessionState
+            || lastPageUUID != snapshot.sessionUUID
+        if snapshot.sessionState != .off {
+            if sessionError != .none { sessionError = .none } // retry underway
+        } else if lastPageState != nil, pageChanged, snapshot.errorCode != .none {
+            sessionError = snapshot.errorCode
+            sessionErrorExpiresAtMillis = now + Self.sessionErrorMillis
+            // The mic tap that opened this failed arming attempt also opened
+            // a 12s arming hint — longer than the 8s error hold, so left
+            // alive it would mask the error strip for its whole life
+            // (micStartFailed would never render). An error latching kills
+            // the hint; only a fresh RETRY tap re-arms it, and that hint
+            // rightly supersedes the complaint (see `StatusStrip.showsError`).
+            armingHintExpiresAtMillis = 0
+        } else if sessionError != .none, now >= sessionErrorExpiresAtMillis {
+            sessionError = .none
+        }
+        lastPageState = snapshot.sessionState
+        lastPageUUID = snapshot.sessionUUID
     }
 
     private func updatePhase(_ snapshot: StatusSnapshot?) {
@@ -245,7 +330,9 @@ final class KeyboardSession: ObservableObject {
             next = phase // transient no-truth tick: hold, retry next tick
         }
         if next != phase { phase = next }
-        let hint = next == .idle && now < armingHintExpiresAtMillis
+        // `ipcEnabled` re-checked here (belt and braces with `micTapped`): a
+        // hint that can never come true must never render in degraded mode.
+        let hint = ipcEnabled && next == .idle && now < armingHintExpiresAtMillis
         if hint != showsArmingHint { showsArmingHint = hint }
     }
 

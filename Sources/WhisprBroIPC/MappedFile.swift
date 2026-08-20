@@ -124,6 +124,14 @@ final class MappedFile {
         }
     }
 
+    /// Raw byte-region copy (the partial page's UTF-8 text field).
+    func storeBytes(_ bytes: [UInt8], at offset: Int) {
+        guard !bytes.isEmpty else { return }
+        bytes.withUnsafeBytes { src in
+            base.advanced(by: offset).copyMemory(from: src.baseAddress!, byteCount: src.count)
+        }
+    }
+
     func loadUUID(at offset: Int) -> UUID {
         var raw = uuid_t(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
         withUnsafeMutableBytes(of: &raw) { dst in

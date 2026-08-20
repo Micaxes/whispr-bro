@@ -151,7 +151,10 @@ public actor SpeechTranscriberEngine: AsrEngine {
         }
     }
 
-    private static func availability(of locale: Locale) async -> SpeechAssetAvailability {
+    /// Internal (not private) so `StreamingPartialTranscriber` gates on the
+    /// exact same query-only probe — the two engines must never disagree on
+    /// what "installed" means, and neither may ever trigger a download.
+    static func availability(of locale: Locale) async -> SpeechAssetAvailability {
         let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
         switch await AssetInventory.status(forModules: [transcriber]) {
         case .installed: return .installed
@@ -216,8 +219,10 @@ public actor SpeechTranscriberEngine: AsrEngine {
 
     /// Wrap the pipeline's 16kHz mono Float32 samples for the analyzer,
     /// converting only when the OS asks for a different format (it should
-    /// not — Apple's speech models run at 16kHz mono).
-    private static func pcmBuffer(
+    /// not — Apple's speech models run at 16kHz mono). Internal so
+    /// `StreamingPartialTranscriber` reuses the exact same bridging for its
+    /// ~100ms streaming chunks.
+    static func pcmBuffer(
         _ samples: [Float], convertedTo format: AVAudioFormat
     ) throws -> AVAudioPCMBuffer {
         guard let sourceFormat = AVAudioFormat(

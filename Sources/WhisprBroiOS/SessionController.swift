@@ -45,6 +45,7 @@ final class SessionController: ObservableObject {
         case immediately
         case fiveMinutes
         case fifteenMinutes
+        case sixtyMinutes
 
         static let storageKey = "sessionIdleExpiry"
 
@@ -53,6 +54,7 @@ final class SessionController: ObservableObject {
             case .immediately: "Right after each dictation"
             case .fiveMinutes: "After 5 minutes idle"
             case .fifteenMinutes: "After 15 minutes idle"
+            case .sixtyMinutes: "After 60 minutes idle"
             }
         }
 
@@ -64,6 +66,7 @@ final class SessionController: ObservableObject {
             switch self {
             case .immediately, .fiveMinutes: 5 * 60
             case .fifteenMinutes: 15 * 60
+            case .sixtyMinutes: 60 * 60
             }
         }
     }
@@ -83,6 +86,13 @@ final class SessionController: ObservableObject {
         }
     }
 
+    /// Hard cap on ONE session dictation segment. Without it the open
+    /// segment's `PreRollBuffer` grows unbounded (~230MB/hr — a jetsam, not a
+    /// feature); 5 minutes matches dictation-app category norms and bounds
+    /// the worst case at ~19MB of 16kHz Float32. The in-app quick-dictation
+    /// path keeps its own 90s cap (`DictationModel.maxRecordingSeconds`).
+    private static let maxSegmentSeconds: TimeInterval = 5 * 60
+
     private let model: DictationModel
     /// The session's own continuous-capture engine, separate from the model's
     /// mic-on-demand one — a session must never inherit the in-app engine's
@@ -92,6 +102,16 @@ final class SessionController: ObservableObject {
     private let audio = AudioEngine()
     private var ipc: SessionIPC?
     private var idleTimer: Timer?
+    /// One-shot `maxSegmentSeconds` timer, armed with every segment.
+    private var segmentCapTimer: Timer?
+    /// The START command that opened the current segment, retained so a
+    /// cap-forced stop can key its result on the same requestUUID +
+    /// keyboardInstanceNonce — the keyboard's nonce-matched auto-insert then
+    /// works exactly as for a tapped stop.
+    private var segmentStartRequest: CommandRecord?
+    /// The open segment's live-preview drain loop (`startPartialPreview`);
+    /// nil while no segment is streaming partials.
+    private var partialPreviewTask: Task<Void, Never>?
     private var observers: [NSObjectProtocol] = []
     /// Bumped on every session start/teardown so async work that outlives a
     /// session (a transcription racing a kill) can detect it and stand down.
@@ -141,6 +161,7 @@ final class SessionController: ObservableObject {
             try audio.startCapture()
         } catch {
             log.error("session mic start failed: \(error.localizedDescription)")
+            ipc?.fail(code: .micStartFailed) // stamped BEFORE the terminal .off
             ipc?.transition(to: .off)
             return
         }
@@ -150,13 +171,15 @@ final class SessionController: ObservableObject {
         observeSystemNotifications()
         armIdleTimer()
         // Live Activity: session state + Stop (reuses the row-8 probe's
-        // controller). Its `.recording` phase is honest here — the mic IS
-        // live for the whole session. Stop routes into `endSession`.
+        // controller), armed as `.sessionLive` — steady mic, "dictate from
+        // the whispr key" — and flipped to `.recording` per segment. Honest
+        // either way: the mic IS live for the whole session. Stop routes
+        // into `endSession` from BOTH phases.
         DictationIntentHooks.stop = { [weak self] in
             await MainActor.run { self?.endSession(reason: "Live Activity stop") }
         }
         Task {
-            do { try await DictationActivityController.start() }
+            do { try await DictationActivityController.start(phase: .sessionLive) }
             catch { log.notice("Live Activity unavailable: \(error.localizedDescription)") }
         }
         log.info("session started (idle expiry: \(self.idleExpiry.rawValue, privacy: .public))")
@@ -174,6 +197,8 @@ final class SessionController: ObservableObject {
         showSessionCard = false
         idleTimer?.invalidate()
         idleTimer = nil
+        cancelSegmentCap()
+        stopPartialPreview()
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
         ipc?.end() // synchronous: the willTerminate path must land the .off page before the process dies
@@ -220,23 +245,49 @@ final class SessionController: ObservableObject {
             ipc?.transition(to: .dictating)
             idleTimer?.invalidate()
             idleTimer = nil
+            segmentStartRequest = record
+            armSegmentCapTimer()
+            startPartialPreview(request: record)
+            updateActivityPhase(.recording)
         case .stopDictation:
             guard phase == .dictating else { return }
-            var timings = StageTimings()
-            let (samples, finalizeSeconds) = measuredSync { audio.endUtterance() }
-            timings.audioFinalizeSeconds = finalizeSeconds
-            phase = .live
-            ipc?.transition(to: .live)
-            Task { await finishDictation(samples, timings: timings, request: record) }
+            cancelSegmentCap()
+            // Keyed by the stop record because that is the request the
+            // keyboard is waiting on.
+            finishSegment(request: record)
         case .cancel:
             guard phase == .dictating else { return }
+            cancelSegmentCap()
+            stopPartialPreview()
             _ = audio.endUtterance() // discard
             phase = .live
             ipc?.transition(to: .live)
             armIdleTimer()
+            updateActivityPhase(.sessionLive)
         case .killSession:
             endSession(reason: "keyboard kill command")
         }
+    }
+
+    /// The one stop path: closes the open segment (both the tapped stop and
+    /// the cap-forced stop land here, differing only in which `CommandRecord`
+    /// keys the result) and hands the samples to `finishDictation`.
+    private func finishSegment(request: CommandRecord) {
+        stopPartialPreview()
+        var timings = StageTimings()
+        let (samples, finalizeSeconds) = measuredSync { audio.endUtterance() }
+        timings.audioFinalizeSeconds = finalizeSeconds
+        phase = .live
+        ipc?.transition(to: .live)
+        updateActivityPhase(.sessionLive)
+        Task { await finishDictation(samples, timings: timings, request: request) }
+    }
+
+    /// Live Activity mirror of the session's live⇄dictating flips (armed
+    /// steady mic vs pulsing recording mic). Fire-and-forget: the activity is
+    /// display-only, so an ActivityKit hiccup must never gate a segment.
+    private func updateActivityPhase(_ phase: DictationActivityAttributes.Phase) {
+        Task { await DictationActivityController.updateSession(phase: phase) }
     }
 
     /// Segment → the SHARED pipeline (`DictationModel.transcribeSessionSamples`
@@ -251,6 +302,12 @@ final class SessionController: ObservableObject {
         let generation = sessionGeneration
         do {
             try await awaitModelReady() // first dictation of the session loads the models
+        } catch {
+            log.error("session model bring-up failed: \(error.localizedDescription)")
+            failDictation(code: .modelLoadFailed, generation: generation)
+            return
+        }
+        do {
             if let text = try await model.transcribeSessionSamples(samples, timings: timings) {
                 ipc?.publishResult(
                     requestUUID: request.requestUUID,
@@ -261,6 +318,8 @@ final class SessionController: ObservableObject {
             }
         } catch {
             log.error("session dictation failed: \(error.localizedDescription)")
+            failDictation(code: .transcriptionFailed, generation: generation)
+            return
         }
         // The session may have died (kill / interruption) while we worked —
         // the result above still landed for the pending-result key, but the
@@ -273,6 +332,81 @@ final class SessionController: ObservableObject {
         } else {
             armIdleTimer()
         }
+    }
+
+    /// Failure tail of `finishDictation`: stamp WHY on the status page, then
+    /// tear down — the keyboard reads the code off the terminal `.off` page
+    /// and shows its error strip instead of a silent flip to the bounce key.
+    /// Ending the session (rather than staying live) is what makes the code
+    /// visible at all — the keyboard only surfaces errors on the `.off`
+    /// transition — and a session whose pipeline just failed would otherwise
+    /// hold the mic while failing identically on every retry. Generation-
+    /// checked like the success tail: if the session already died while we
+    /// worked, our stale code must not be stamped over whatever ended it.
+    private func failDictation(code: SessionErrorCode, generation: Int) {
+        guard sessionGeneration == generation, phase != .off else { return }
+        ipc?.fail(code: code)
+        endSession(reason: "dictation failure (\(code))")
+    }
+
+    // MARK: - Live preview (hybrid partials)
+
+    /// The hybrid live preview: a per-segment `StreamingPartialTranscriber`
+    /// (SpeechTranscriber volatile + finalized results — a SYSTEM model,
+    /// gated query-only on installed assets, never downloading) fed by a
+    /// ~100ms drain of the session's continuous capture, relayed to the
+    /// keyboard through the partial page at ~10Hz (`SessionIPC`). Display-
+    /// only and strictly best-effort by design: assets missing, start
+    /// failing, or a mid-segment death all mean NO preview — never a delayed
+    /// or altered final. The Parakeet path is untouched because
+    /// `drainNewSamples` only advances its own incremental cursor;
+    /// `endUtterance` still returns the FULL segment (`PreRollBuffer`).
+    private func startPartialPreview(request: CommandRecord) {
+        // The START command's requestUUID doubles as the segment identity for
+        // the partial stream: the keyboardInstanceNonce alone can't tell two
+        // segments of the same keyboard apart, and a cancelled segment's
+        // transcriber can fire one last volatile callback AFTER the next
+        // segment re-armed the pump — same nonce, stale text.
+        let segment = request.requestUUID
+        partialPreviewTask?.cancel()
+        partialPreviewTask = Task { [weak self] in
+            guard let self else { return }
+            guard let transcriber = await StreamingPartialTranscriber.makeIfAvailable(
+                language: self.model.dictationLanguage)
+            else { return } // partials off for this locale/build — silently
+            guard !Task.isCancelled else { return } // segment already closed
+            self.ipc?.beginPartialStream(nonce: request.keyboardInstanceNonce, segment: segment)
+            do {
+                // The callback hops onto the control queue, where it is
+                // segment-guarded — a late result after `endPartialStream` is
+                // dropped, never resurrected onto the cleared page NOR
+                // published into a newer segment of the same keyboard.
+                try await transcriber.start { [weak ipc = self.ipc] text in
+                    ipc?.updatePartial(text: text, segment: segment)
+                }
+            } catch {
+                self.log.notice("partial preview unavailable: \(error.localizedDescription)")
+                self.ipc?.endPartialStream()
+                return
+            }
+            while !Task.isCancelled {
+                let chunk = self.audio.drainNewSamples()
+                if !chunk.isEmpty { await transcriber.feed(chunk) }
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+            await transcriber.finish()
+        }
+    }
+
+    /// Preview teardown, on EVERY segment exit (tapped stop, cancel, cap
+    /// fire, kill, session teardown): cancel the drain loop — its tail
+    /// finishes the analyzer — and clear the partial page so the keyboard's
+    /// next poll drops the text. Cancel + async queue post only: this can
+    /// never block or reorder the final-transcript work that follows it.
+    private func stopPartialPreview() {
+        partialPreviewTask?.cancel()
+        partialPreviewTask = nil
+        ipc?.endPartialStream()
     }
 
     /// Wait for the shared model to reach `.idle`. The scene's onAppear
@@ -326,6 +460,33 @@ final class SessionController: ObservableObject {
         }
     }
 
+    /// The unbounded-segment guard, `armIdleTimer`'s complement (that one is
+    /// never armed while `.dictating`; this one ONLY is). On fire the open
+    /// segment is stopped exactly as if the keyboard had posted stop, keyed
+    /// on the retained START record — its nonce matches the same keyboard
+    /// instance, so the transcript still auto-inserts; the keyboard's phase
+    /// falls back via the `.live` page state on its next tick.
+    private func armSegmentCapTimer() {
+        segmentCapTimer?.invalidate()
+        segmentCapTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.maxSegmentSeconds, repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.phase == .dictating,
+                      let request = self.segmentStartRequest else { return }
+                self.log.notice("segment cap (\(Int(Self.maxSegmentSeconds))s) hit — auto-stopping dictation")
+                self.cancelSegmentCap()
+                self.finishSegment(request: request)
+            }
+        }
+    }
+
+    private func cancelSegmentCap() {
+        segmentCapTimer?.invalidate()
+        segmentCapTimer = nil
+        segmentStartRequest = nil
+    }
+
     /// Interruption / route loss / termination → teardown, always. A
     /// backgrounded app cannot legally restart the mic, so a resume is never
     /// attempted — the keyboard sees `.off` and offers the bounce key.
@@ -337,7 +498,15 @@ final class SessionController: ObservableObject {
             let type = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
                 .flatMap(AVAudioSession.InterruptionType.init(rawValue:))
             guard type == .began else { return }
-            MainActor.assumeIsolated { self?.endSession(reason: "audio session interrupted") }
+            MainActor.assumeIsolated {
+                guard let self, self.phase != .off else { return }
+                // The one teardown that carries an error code to the keyboard
+                // (call/Siri/another app took the mic mid-session); route
+                // change and termination below stay code-free — they read as
+                // ordinary session ends, not failures.
+                self.ipc?.fail(code: .micInterrupted)
+                self.endSession(reason: "audio session interrupted")
+            }
         })
         // Only the reasons that change the input device set: the capture
         // graph was built for the old route, and rebuilding may happen while
@@ -359,8 +528,9 @@ final class SessionController: ObservableObject {
     }
 }
 
-/// Session-side failure, logged (never user-facing UI — the keyboard's
-/// liveness verdict is the user-visible signal).
+/// Session-side failure, logged; the user-facing signal is the coarse
+/// `SessionErrorCode` on the status page (the keyboard's error strip), never
+/// this message text.
 private struct SessionFailure: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
@@ -394,10 +564,24 @@ private final class SessionIPC: @unchecked Sendable {
 
     private var container: URL?
     private var status: StatusPageWriter?
+    private var partial: PartialPageWriter?
     private var drainer: CommandMailboxDrainer?
     private var hintToken: DarwinHintToken?
     private var pollTimer: DispatchSourceTimer?
     private var heartbeatTimer: DispatchSourceTimer?
+    /// ~10Hz partial-page pump (armed only while a segment streams partials):
+    /// the throttle between the transcriber's bursty result callbacks and the
+    /// mmap page. Latest text wins; unchanged text is never republished.
+    private var partialPumpTimer: DispatchSourceTimer?
+    private var partialNonce: UUID?
+    /// The open segment's identity (its START command's requestUUID) — the
+    /// `updatePartial` guard. The nonce alone can't distinguish two segments
+    /// opened by the SAME keyboard instance, so a cancelled segment's late
+    /// transcriber callback would otherwise publish stale text into its
+    /// successor's stream.
+    private var partialSegment: UUID?
+    private var partialText: String?
+    private var partialDirty = false
 
     init(level: @escaping () -> Float, onCommands: @escaping ([CommandRecord]) -> Void) {
         self.level = level
@@ -420,6 +604,9 @@ private final class SessionIPC: @unchecked Sendable {
         } catch {
             log.error("status page unavailable (\(error.localizedDescription)) — keyboard IPC disabled")
         }
+        // The partial page (live preview) degrades independently and quietly:
+        // sessions, commands, and results all work without it.
+        partial = try? PartialPageWriter(directory: container)
         let seed = UInt32(clamping: UserDefaults.standard.integer(forKey: Self.drainWatermarkKey))
         drainer = CommandMailboxDrainer(directory: container, lastDrainedSeq: seed)
         ResultDrop.collectGarbage(in: container)
@@ -482,6 +669,16 @@ private final class SessionIPC: @unchecked Sendable {
         }
     }
 
+    /// Stamp why the session is dying (`SessionErrorCode`). No hint of its
+    /// own: every caller follows up with `transition(to: .off)` or `end()` on
+    /// this same serial queue, and THAT publish (which the keyboard reacts
+    /// to) is guaranteed to already carry the code.
+    func fail(code: SessionErrorCode) {
+        queue.async {
+            self.status?.fail(code: code)
+        }
+    }
+
     /// Teardown. Synchronous (`queue.sync`) on purpose: the willTerminate
     /// path must land the `.off` page before the process dies, and the queue
     /// only ever runs sub-millisecond work, so the hop is safe from the main
@@ -494,9 +691,65 @@ private final class SessionIPC: @unchecked Sendable {
             self.pollTimer = nil
             self.hintToken?.cancel()
             self.hintToken = nil
+            self.tearDownPartialLocked()
             self.status?.transition(to: .off)
             DarwinHint.post(KeyboardIPC.statusHintName)
         }
+    }
+
+    /// A segment opened: arm the ~10Hz publish pump for `nonce` (the START
+    /// command's keyboardInstanceNonce — the keyboard's render guard, so a
+    /// preview can only ever paint the keyboard instance that initiated the
+    /// segment) and `segment` (the START command's requestUUID — the
+    /// `updatePartial` stale-callback guard). All partial-page writes ride
+    /// this one queue with the status page — the single-writer contract is
+    /// one process AND one queue.
+    func beginPartialStream(nonce: UUID, segment: UUID) {
+        queue.async {
+            guard self.partial != nil else { return } // page unavailable: partials off
+            self.partialNonce = nonce
+            self.partialSegment = segment
+            self.partialText = nil
+            self.partialDirty = false
+            self.partialPumpTimer?.cancel()
+            self.partialPumpTimer = self.makeTimer(milliseconds: 100) { [weak self] in
+                guard let self, self.partialDirty,
+                      let text = self.partialText, let nonce = self.partialNonce else { return }
+                self.partialDirty = false
+                self.partial?.publish(text: text, nonce: nonce)
+            }
+        }
+    }
+
+    /// Newest preview text from the streaming transcriber; the pump publishes
+    /// it on its next 100ms tick. No Darwin hint — the keyboard's ~20Hz poll
+    /// outpaces the pump already. Guarded on the SEGMENT identity, not mere
+    /// stream presence: a late callback landing after `endPartialStream` is
+    /// dropped (never republished over a cleared page), and so is one from a
+    /// cancelled segment's transcriber racing the NEXT segment's stream —
+    /// same keyboard nonce, different requestUUID, stale text.
+    func updatePartial(text: String, segment: UUID) {
+        queue.async {
+            guard segment == self.partialSegment, text != self.partialText else { return }
+            self.partialText = text
+            self.partialDirty = true
+        }
+    }
+
+    /// The segment closed (stop / cancel / cap / kill / teardown): pump
+    /// stopped, page cleared — the keyboard's next poll drops the preview.
+    func endPartialStream() {
+        queue.async { self.tearDownPartialLocked() }
+    }
+
+    private func tearDownPartialLocked() {
+        partialPumpTimer?.cancel()
+        partialPumpTimer = nil
+        partialNonce = nil
+        partialSegment = nil
+        partialText = nil
+        partialDirty = false
+        partial?.clear()
     }
 
     func drainNow() {
@@ -557,6 +810,7 @@ private final class SessionIPC: @unchecked Sendable {
     deinit {
         heartbeatTimer?.cancel()
         pollTimer?.cancel()
+        partialPumpTimer?.cancel()
     }
 }
 
@@ -625,6 +879,7 @@ struct SessionCardView: View {
         case .immediately: "closes right after each dictation · stop any time from the Live Activity"
         case .fiveMinutes: "closes after 5 min idle · stop any time from the Live Activity"
         case .fifteenMinutes: "closes after 15 min idle · stop any time from the Live Activity"
+        case .sixtyMinutes: "closes after 60 min idle · stop any time from the Live Activity"
         }
     }
 }
