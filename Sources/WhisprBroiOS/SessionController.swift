@@ -20,7 +20,8 @@ import WhisprBroIPC
 /// Orange-dot honesty is the design, not a bug: the mic indicator stays lit
 /// for the whole session because the mic genuinely is live — audio stays in
 /// the in-process ring (never the App Group), transcription is fully local,
-/// and the session is killable from the Live Activity at any moment. Idle
+/// and the session is killable from the card at any moment (and from the
+/// Live Activity too, when the Settings toggle opts into one). Idle
 /// expiry (`IdleExpiry`) bounds how long an unused session may hold the mic;
 /// interruption / route loss / termination tear it down immediately, and a
 /// background restart is never attempted.
@@ -91,14 +92,15 @@ final class SessionController: ObservableObject {
     /// external arm over one must kill a stale card's switchback), reset on
     /// teardown.
     @Published private(set) var armedViaKeyboard = false
-    /// The user's remembered switchback target (`ReturnApp`), persisted in
-    /// the app's own UserDefaults — never the App Group; the keyboard has no
-    /// use for it. Nil until the user picks one from the session card.
-    @Published var returnApp: ReturnApp? = ReturnApp.byID(
-        UserDefaults.standard.string(forKey: ReturnApp.storageKey)
+    /// The user's persisted auto-return preference (`ReturnApp.Choice`):
+    /// unset until the first keyboard-armed card asks, then a chosen app or
+    /// the explicit off. Persisted in the app's own UserDefaults — never the
+    /// App Group; the keyboard has no use for it.
+    @Published var returnChoice: ReturnApp.Choice = ReturnApp.Choice.from(
+        stored: UserDefaults.standard.string(forKey: ReturnApp.storageKey)
     ) {
         didSet {
-            UserDefaults.standard.set(returnApp?.id, forKey: ReturnApp.storageKey)
+            UserDefaults.standard.set(returnChoice.stored, forKey: ReturnApp.storageKey)
         }
     }
     @Published var idleExpiry: IdleExpiry = {
@@ -213,7 +215,15 @@ final class SessionController: ObservableObject {
         // controller), armed as `.sessionLive` — steady mic, "dictate from
         // the whispr key" — and flipped to `.recording` per segment. Honest
         // either way: the mic IS live for the whole session. Stop routes
-        // into `endSession` from BOTH phases.
+        // into `endSession` from BOTH phases. OPT-IN since the Settings
+        // "Live Activity" toggle (default off — the owner's call that the
+        // island pill is noise during dictation): `start` self-gates on it,
+        // so when off no activity is ever requested and every update/end
+        // downstream is a nil-safe no-op. Display-only either way — capture
+        // stays alive via the active audio session (`UIBackgroundModes
+        // audio`), never via the activity. The stop hook is armed regardless:
+        // it only fires from an island End button, so with no activity it
+        // simply never runs.
         DictationIntentHooks.stop = { [weak self] in
             await MainActor.run { self?.endSession(reason: "Live Activity stop") }
         }
@@ -921,11 +931,15 @@ private final class SessionIPC: @unchecked Sendable {
 /// must say so ("already recording — swipe back and keep talking").
 ///
 /// KEYBOARD-ARMED SESSIONS ONLY additionally get the return affordance
-/// (`ReturnApp`): with a remembered target the card announces "returning to
-/// <app>…" and deep-links its scheme after `autoReturnDelay` — a tap anywhere
-/// within that window cancels; without one it offers the installed-apps
-/// picker row. The swipe-back line always remains — it is the only return
-/// path for apps outside the allowlist.
+/// (`ReturnApp.Choice`): with a remembered target the card announces
+/// "returning to <app>…" and deep-links its scheme after `autoReturnDelay` —
+/// short enough to feel automatic, though a tap anywhere still cancels. A
+/// first arm (nothing remembered) leads with the HERO picker instead: one
+/// tap picks, remembers, and returns immediately, and its opt-out line
+/// persists auto-return off for users whose app has no public scheme. Later
+/// cards carry a small "change" line to re-pick or turn auto-return off. The
+/// swipe-back line always remains — it is the only return path for apps
+/// outside the allowlist.
 struct SessionCardView: View {
     @ObservedObject var session: SessionController
     @State private var slide = false
@@ -936,11 +950,22 @@ struct SessionCardView: View {
     /// Non-nil while the auto-switchback countdown runs.
     @State private var pendingReturn: ReturnApp?
     @State private var returnTask: Task<Void, Never>?
+    /// The "change" affordance re-opened the hero picker over a remembered
+    /// (or off) choice; resets with the card — each presentation is fresh.
+    @State private var repicking = false
 
-    /// The cancel window between the card appearing with a remembered target
-    /// and its scheme being opened: long enough to read the announcement and
-    /// tap, short enough to feel automatic.
-    private static let autoReturnDelay: Duration = .milliseconds(800)
+    /// Delay between the card appearing with a remembered target and its
+    /// scheme being opened. Everything the mic needs is already settled
+    /// SYNCHRONOUSLY before the card can render (`startSession` ran
+    /// `startCapture` and flipped the phase first); this only has to cover
+    /// the async tail — `goLive`'s control-queue hop redelivering the
+    /// keyboard's preserved startDictation to the main actor, i.e. segment 1
+    /// actually opening — plus one perceptible frame of the card so the
+    /// bounce is explained. 250ms does both with margin; the previous 800ms
+    /// "cancel window" read as the app waiting to be told (owner-tested,
+    /// user swiped back before it fired). A tap within the window still
+    /// cancels.
+    private static let autoReturnDelay: Duration = .milliseconds(250)
 
     var body: some View {
         ZStack {
@@ -1013,40 +1038,107 @@ struct SessionCardView: View {
 
     /// The switchback affordance, keyboard-armed sessions only (an Action
     /// Button / Control Center / Shortcuts arm has no "app the user was
-    /// typing in" to return to): the countdown announcement while one runs,
-    /// the picker row otherwise. Nothing at all when no curated app is
-    /// installed — the swipe-back line above is the honest instruction then.
+    /// typing in" to return to): the countdown announcement while one runs;
+    /// otherwise the hero picker (never asked, or re-picking via "change")
+    /// or the small status line naming the current choice. Nothing at all
+    /// when no curated app is installed — the swipe-back line above is the
+    /// honest instruction then.
     @ViewBuilder private var returnAffordance: some View {
         if let app = pendingReturn {
             Text("returning to \(app.name)… tap anywhere to stay")
                 .font(Brand.mono(11, .medium)).tracking(0.5)
                 .foregroundStyle(Brand.lightMono)
         } else if session.armedViaKeyboard, !installedReturnApps.isEmpty {
-            VStack(spacing: 10) {
-                Text("OR RETURN TO")
-                    .font(Brand.mono(10, .medium)).tracking(1.5)
-                    .foregroundStyle(Brand.lightMono.opacity(0.7))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(installedReturnApps) { app in
-                            Button {
-                                session.returnApp = app // remembered for next time
-                                open(app)
-                            } label: {
-                                Text(app.name)
-                                    .font(Brand.mono(12, .medium))
-                                    .foregroundStyle(Brand.paper)
-                                    .padding(.vertical, 8).padding(.horizontal, 14)
-                                    .overlay(Capsule().stroke(
-                                        Brand.lightMono.opacity(0.4), lineWidth: 1))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 2) // keep the capsule strokes unclipped
-                }
+            switch (repicking, effectiveChoice) {
+            case (true, _), (false, .unset):
+                returnPicker
+            case (false, .app(let app)):
+                changeLine("auto-returns to \(app.name) ·")
+            case (false, .off):
+                changeLine("auto-return is off ·")
             }
         }
+    }
+
+    /// The remembered choice with an uninstalled target degraded to `unset`:
+    /// an app deleted since it was picked simply re-asks — never a dead
+    /// "auto-returns to …" line.
+    private var effectiveChoice: ReturnApp.Choice {
+        if case .app(let app) = session.returnChoice,
+           !installedReturnApps.contains(app) {
+            return .unset
+        }
+        return session.returnChoice
+    }
+
+    /// The hero picker — the card's centerpiece on a first keyboard arm:
+    /// every installed curated app as a large tap target; ONE tap picks,
+    /// remembers (`SessionController.returnChoice`), and returns
+    /// immediately — no confirm step. The opt-out line persists `.off`, so
+    /// users whose app has no public scheme are asked exactly once.
+    /// `ViewThatFits` keeps a long list scrollable instead of clipping small
+    /// screens.
+    private var returnPicker: some View {
+        VStack(spacing: 16) {
+            Text("where should whispr send you back?")
+                .font(Brand.sans(19, .semibold))
+                .foregroundStyle(Brand.paper)
+            ViewThatFits(in: .vertical) {
+                pickerGrid
+                ScrollView(showsIndicators: false) { pickerGrid }
+                    .frame(maxHeight: 240)
+            }
+            Button {
+                session.returnChoice = .off
+                repicking = false
+            } label: {
+                Text("my app isn't here — I'll just swipe back")
+                    .font(Brand.mono(11, .medium)).tracking(0.5)
+                    .foregroundStyle(Brand.lightMono)
+                    .underline()
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var pickerGrid: some View {
+        LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10
+        ) {
+            ForEach(installedReturnApps) { app in
+                Button {
+                    session.returnChoice = .app(app) // remembered for next time
+                    repicking = false
+                    open(app)
+                } label: {
+                    Text(app.name)
+                        .font(Brand.sans(15, .medium))
+                        .foregroundStyle(Brand.paper)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .overlay(Capsule().stroke(
+                            Brand.lightMono.opacity(0.5), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 2) // keep the capsule strokes unclipped
+    }
+
+    /// The later-sessions affordance: one small line naming the current
+    /// choice, with "change" re-opening the hero picker (re-pick, or turn
+    /// auto-return off via its opt-out line).
+    private func changeLine(_ status: String) -> some View {
+        Button {
+            repicking = true
+        } label: {
+            HStack(spacing: 5) {
+                Text(status).foregroundStyle(Brand.lightMono)
+                Text("change").foregroundStyle(Brand.paper).underline()
+            }
+            .font(Brand.mono(11, .medium)).tracking(0.5)
+        }
+        .buttonStyle(.plain)
     }
 
     /// Arms the auto-switchback countdown: keyboard-armed session + a
@@ -1055,7 +1147,7 @@ struct SessionCardView: View {
     /// and backgrounding us auto-dismisses this card (`scenePhaseChanged`).
     private func armAutoReturn() {
         guard session.armedViaKeyboard,
-              let app = session.returnApp,
+              case .app(let app) = session.returnChoice,
               installedReturnApps.contains(app) else { return }
         pendingReturn = app
         returnTask = Task {
@@ -1086,11 +1178,16 @@ struct SessionCardView: View {
     }
 
     private var expiryLine: String {
-        switch session.idleExpiry {
-        case .immediately: "closes right after each dictation · stop any time from the Live Activity"
-        case .fiveMinutes: "closes after 5 min idle · stop any time from the Live Activity"
-        case .fifteenMinutes: "closes after 15 min idle · stop any time from the Live Activity"
-        case .sixtyMinutes: "closes after 60 min idle · stop any time from the Live Activity"
+        // The stop-affordance half stays honest per the Settings toggle: a
+        // Live Activity only exists when the user opted in (default off).
+        let stop = DictationActivityController.isEnabled
+            ? "stop any time from the Live Activity"
+            : "end it below any time"
+        return switch session.idleExpiry {
+        case .immediately: "closes right after each dictation · \(stop)"
+        case .fiveMinutes: "closes after 5 min idle · \(stop)"
+        case .fifteenMinutes: "closes after 15 min idle · \(stop)"
+        case .sixtyMinutes: "closes after 60 min idle · \(stop)"
         }
     }
 }

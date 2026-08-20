@@ -3,13 +3,17 @@ import WhisprBroCore
 
 /// Settings sheet: dictation language (English = fast Parakeet v2; it/es need
 /// the multilingual v3, gated on it being installed), Auto-Clean level (same
-/// UserDefaults keys as macOS), history toggle, keyboard-session idle expiry,
-/// and the privacy card.
+/// UserDefaults keys as macOS), history toggle, keyboard-session idle expiry
+/// + the opt-in Live Activity, and the privacy card.
 struct SettingsSheet: View {
     @EnvironmentObject private var model: DictationModel
     @ObservedObject private var session = AppModel.session
     @Environment(\.dismiss) private var dismiss
     @AppStorage(DictationLanguage.storageKey) private var languageRaw = DictationLanguage.english.rawValue
+    /// The Live Activity opt-in (`DictationActivityController.enabledKey`,
+    /// default off): read at every activity request, so flipping it needs no
+    /// restart — the next session start honors it.
+    @AppStorage(DictationActivityController.enabledKey) private var liveActivityEnabled = false
 
     private var selectedLanguage: DictationLanguage {
         DictationLanguage(rawValue: languageRaw) ?? .english
@@ -130,16 +134,24 @@ struct SettingsSheet: View {
                         selected: session.idleExpiry == option)
                 }
             }
+            Toggle(isOn: $liveActivityEnabled) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Live Activity")
+                        .font(Brand.sans(15)).foregroundStyle(Brand.ink)
+                    Text("Shows a Dynamic Island pill with an End button while a session is live")
+                        .font(Brand.sans(12)).foregroundStyle(Brand.mist)
+                }
+            }
+            .tint(Brand.ink)
         } header: {
             header("Keyboard session")
         } footer: {
             footer("Dictating from the whispr keyboard runs a session: the mic is honestly "
                 + "live the whole time (the indicator stays on — that's the point, not a "
-                + "leak), audio never leaves this device, and you can kill the session any "
-                + "time from the Live Activity. Pick how long an idle session stays armed. "
-                + "Arm one hands-free too: \u{201C}Start Whispr Session\u{201D} lives in "
-                + "Control Center, and works from the Action Button or Back Tap via "
-                + "Shortcuts.")
+                + "leak) and audio never leaves this device. Pick how long an idle session "
+                + "stays armed. Arm one hands-free too: \u{201C}Start Whispr Session\u{201D} "
+                + "lives in Control Center, and works from the Action Button or Back Tap "
+                + "via Shortcuts.")
         }
         .listRowBackground(Brand.raised)
     }

@@ -35,9 +35,11 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<!-- The session card's return-to-app allowlist (ReturnApp.curated):
-	     canOpenURL only answers for schemes declared here. URL-scheme opens
-	     only — no networking. -->
+	<!-- The session card's return-to-app allowlist — MUST mirror
+	     ReturnApp.curated exactly: canOpenURL only answers for schemes
+	     declared here (Apple caps the list at 50; 19 used). URL-scheme opens
+	     only — no networking. sms:/mailto: are deliberately absent: open()
+	     on them composes a blank draft, not a return (see ReturnApp). -->
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
 		<string>claude</string>
@@ -48,6 +50,17 @@
 		<string>slack</string>
 		<string>googlegmail</string>
 		<string>twitter</string>
+		<string>fb-messenger</string>
+		<string>sgnl</string>
+		<string>discord</string>
+		<string>instagram</string>
+		<string>reddit</string>
+		<string>linkedin</string>
+		<string>googlechrome</string>
+		<string>obsidian</string>
+		<string>things</string>
+		<string>todoist</string>
+		<string>bear</string>
 	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>whispr bro transcribes entirely on this device — audio never leaves it.</string>

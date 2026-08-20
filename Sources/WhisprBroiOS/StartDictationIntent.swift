@@ -21,7 +21,9 @@ enum AppModel {
 /// this intent is the instrumented probe that answers it. It:
 ///  1. starts the Live Activity FIRST — the platform contract: the system
 ///     stops an `AudioRecordingIntent` recording that has no visible Live
-///     Activity;
+///     Activity. Gated on the Settings "Live Activity" toggle (default off)
+///     since the owner cut the pill from sessions; off runs the probe
+///     uncovered, which is itself probe data;
 ///  2. brings up + starts capture through the SAME `DictationModel` path the
 ///     in-app record key uses (mic-on-demand semantics preserved);
 ///  3. stops via `StopDictationIntent` from the Live Activity's Stop button.
@@ -64,16 +66,23 @@ struct StartDictationIntent: AudioRecordingIntent {
             return .result()
         }
 
-        // (1) Live Activity FIRST. A request failure here is probe data, not
-        // an abort: proceed and let the device show whether recording
-        // survives without one (the contract says it will be stopped).
-        do {
-            try await DictationActivityController.start()
-            print("PROBE: intent=start live_activity=ok "
-                + "activity_ms=\(Self.ms(clock.now - invoked))")
-        } catch {
-            print("PROBE: intent=start live_activity=FAILED "
-                + "error=\(error.localizedDescription)")
+        // (1) Live Activity FIRST — when the Settings toggle allows one. A
+        // request failure here is probe data, not an abort: proceed and let
+        // the device show whether recording survives without one (the
+        // contract says it will be stopped). Toggle off (the DEFAULT) runs
+        // uncovered on purpose — whether the system then stops the recording
+        // is itself probe data, marked distinctly below.
+        if DictationActivityController.isEnabled {
+            do {
+                try await DictationActivityController.start()
+                print("PROBE: intent=start live_activity=ok "
+                    + "activity_ms=\(Self.ms(clock.now - invoked))")
+            } catch {
+                print("PROBE: intent=start live_activity=FAILED "
+                    + "error=\(error.localizedDescription)")
+            }
+        } else {
+            print("PROBE: intent=start live_activity=off settings_toggle=off")
         }
 
         do {
@@ -177,22 +186,45 @@ struct StartDictationIntent: AudioRecordingIntent {
 /// Owns the one dictation Live Activity: request/update/end, plus a 1Hz
 /// observer mirroring the model's level into the activity while recording
 /// (the level bar is a liveness signal, not a waveform — no update budget
-/// worth burning).
+/// worth burning). Every REQUEST is gated on the Settings "Live Activity"
+/// toggle (`enabledKey`, default off): when off no activity ever exists and
+/// every update/end call is a nil-safe no-op — the activity is display + an
+/// End button only, with no role in keeping capture alive.
 @MainActor
 enum DictationActivityController {
     private static var activity: Activity<DictationActivityAttributes>?
     private static var observer: Task<Void, Never>?
 
+    /// UserDefaults key for the Settings "Live Activity" toggle — DEFAULT
+    /// OFF (an absent key reads false): the island pill during dictation is
+    /// opt-in, not ambience. Off costs sessions nothing — backgrounded
+    /// capture is kept alive by the active audio session (`UIBackgroundModes
+    /// audio`), never by the activity. The one caveat is the row-8 probe: an
+    /// `AudioRecordingIntent` recording without a visible Live Activity is,
+    /// per the platform contract, stopped by the system — with the toggle
+    /// off that intent runs uncovered (probe-logged as such, device-only to
+    /// verify).
+    static let enabledKey = "liveActivityEnabled"
+
+    /// The one request gate, read at every `start`. Update/end paths stay
+    /// unconditional: with no activity requested they are already nil-safe
+    /// no-ops (`activity?.…`).
+    static var isEnabled: Bool {
+        UserDefaults.standard.bool(forKey: enabledKey)
+    }
+
     /// `phase` defaults to `.recording` (the row-8 probe / quick-dictation
     /// path); `SessionController` arms with `.sessionLive` instead.
     static func start(phase: DictationActivityAttributes.Phase = .recording) async throws {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-            throw ProbeFailure("Live Activities are disabled for whispr bro")
-        }
         // A stale activity (app died mid-dictation) would strand a second
-        // Stop button — clear before requesting.
+        // Stop button — clear before requesting, and even when the toggle is
+        // off, so a pill left over from a life when it was on still dies.
         for stale in Activity<DictationActivityAttributes>.activities {
             await stale.end(nil, dismissalPolicy: .immediate)
+        }
+        guard isEnabled else { return } // Settings toggle off: never request
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            throw ProbeFailure("Live Activities are disabled for whispr bro")
         }
         activity = try Activity.request(
             attributes: DictationActivityAttributes(startedAt: Date()),
@@ -211,6 +243,9 @@ enum DictationActivityController {
 
     static func observe(_ model: DictationModel) {
         observer?.cancel()
+        // No activity (Settings toggle off, or the request failed): a 1Hz
+        // level mirror into nothing is pure churn — skip.
+        guard activity != nil else { return }
         observer = Task {
             while !Task.isCancelled, model.state == .recording {
                 await update(phase: .recording, level: Double(model.level))
