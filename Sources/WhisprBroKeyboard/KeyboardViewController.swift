@@ -13,7 +13,17 @@ import WhisprBroIPC
 /// no audio, no networking.
 final class KeyboardViewController: UIInputViewController {
     private var session: KeyboardSession?
+    private var autocorrect: AutocorrectController?
     private var heightConstraint: NSLayoutConstraint?
+
+    override func loadView() {
+        // A `UIInputView` (style .keyboard) instead of the default plain
+        // view: the style supplies the same system keyboard background
+        // material the clear background below relies on, and the
+        // `UIInputViewAudioFeedback` conformance is the ONLY way
+        // `playInputClick()` is allowed to sound (see `KeyClick`).
+        view = ClickFeedbackInputView(frame: .zero, inputViewStyle: .keyboard)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -25,6 +35,28 @@ final class KeyboardViewController: UIInputViewController {
         // color.
         view.backgroundColor = .clear
 
+        // The autocorrect layer: every key edit routes through it so its
+        // shadow word stays the truth for replacement math; the proxy
+        // closures are the only place the engine's EditCommands touch UIKit.
+        let autocorrect = AutocorrectController(
+            insertText: { [weak self] text in self?.textDocumentProxy.insertText(text) },
+            deleteBackward: { [weak self] in self?.textDocumentProxy.deleteBackward() },
+            contextBefore: { [weak self] in self?.textDocumentProxy.documentContextBeforeInput },
+            contextAfter: { [weak self] in self?.textDocumentProxy.documentContextAfterInput },
+            autocapitalization: { [weak self] in
+                self?.textDocumentProxy.autocapitalizationType ?? .sentences
+            })
+        self.autocorrect = autocorrect
+        // The user dictionary (contact names, text replacements) whitelists
+        // words the engine must never "correct". Completion queue is
+        // unspecified — hop to main, like everything else in the appex.
+        requestSupplementaryLexicon { lexicon in
+            let words = lexicon.entries.map(\.documentText)
+            DispatchQueue.main.async { [weak autocorrect] in
+                autocorrect?.setLexicon(words)
+            }
+        }
+
         // One session — and one keyboardInstanceNonce — per viewDidLoad, per
         // the `TranscriptResult` contract: a nonce match is what proves this
         // same instance (same host app, same text field) is still frontmost,
@@ -33,7 +65,10 @@ final class KeyboardViewController: UIInputViewController {
         session.insertText = { [weak self] text in
             // The ONE insertion path (auto on nonce match, manual on the
             // pending-result key) — a single insertText per transcript.
+            // Transcripts bypass the key grid, so the autocorrect shadow
+            // word must be told separately.
             self?.textDocumentProxy.insertText(text)
+            self?.autocorrect?.noteTranscriptInserted(text)
         }
         session.openApp = { [weak self] in self?.openMainApp() }
         self.session = session
@@ -42,10 +77,11 @@ final class KeyboardViewController: UIInputViewController {
         // one key that must stay UIKit (raw-UIEvent forwarding — see its doc).
         let host = UIHostingController(rootView: KeyboardBar(
             session: session,
+            autocorrect: autocorrect,
             controller: self,
-            insertCharacter: { [weak self] text in self?.textDocumentProxy.insertText(text) },
-            deleteBackward: { [weak self] in self?.textDocumentProxy.deleteBackward() },
-            insertNewline: { [weak self] in self?.textDocumentProxy.insertText("\n") },
+            insertCharacter: { autocorrect.typeCharacter($0) },
+            deleteBackward: { autocorrect.tapDelete() },
+            insertNewline: { autocorrect.typeBoundary("\n") },
             openSettings: { [weak self] in self?.openAppSettings() }))
         addChild(host)
         host.view.backgroundColor = .clear
@@ -58,6 +94,12 @@ final class KeyboardViewController: UIInputViewController {
             host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -4),
         ])
         host.didMove(toParent: self)
+
+        refreshHostTraits()
+        // Ground the shadow word (and the auto-cap hint — an empty sentences
+        // field raises shift on first appearance, like the system) before the
+        // first textDidChange lands.
+        autocorrect.resync()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -71,8 +113,11 @@ final class KeyboardViewController: UIInputViewController {
             constraint.isActive = true
             heightConstraint = constraint
         }
-        // Full Access can change in Settings between appearances.
+        // Full Access can change in Settings between appearances. Key sounds
+        // share the gate: without Full Access `playInputClick` stalls the
+        // appex for whole seconds before failing silently.
         session?.hasFullAccess = hasFullAccess
+        KeyClick.enabled = hasFullAccess
         session?.startPolling()
     }
 
@@ -89,6 +134,38 @@ final class KeyboardViewController: UIInputViewController {
         // re-render → re-layout, forever.
         if session?.needsInputModeSwitchKey != needsInputModeSwitchKey {
             session?.needsInputModeSwitchKey = needsInputModeSwitchKey
+        }
+    }
+
+    override func textDidChange(_ textInput: UITextInput?) {
+        super.textDidChange(textInput)
+        // The host's context is ground truth: cursor moves, host-side edits,
+        // and the echo of our own inserts all re-ground the autocorrect
+        // shadow word here. Traits can change per field too (a search field's
+        // return key, an explicit dark appearance).
+        autocorrect?.resync()
+        refreshHostTraits()
+    }
+
+    /// Host-declared input traits the keyboard mirrors: the return key's
+    /// caption follows `returnKeyType` (the six native captions; everything
+    /// else, including the legacy web/emergency variants, falls back to
+    /// "return"), and an EXPLICIT light/dark `keyboardAppearance` overrides
+    /// the ambient style — `.default` leaves the system's choice alone.
+    private func refreshHostTraits() {
+        let label: String = switch textDocumentProxy.returnKeyType ?? .default {
+        case .go: "go"
+        case .search: "search"
+        case .done: "done"
+        case .send: "send"
+        case .next: "next"
+        default: "return"
+        }
+        if session?.returnKeyLabel != label { session?.returnKeyLabel = label }
+        switch textDocumentProxy.keyboardAppearance ?? .default {
+        case .dark: view.overrideUserInterfaceStyle = .dark
+        case .light: view.overrideUserInterfaceStyle = .light
+        default: view.overrideUserInterfaceStyle = .unspecified
         }
     }
 
@@ -138,4 +215,13 @@ final class KeyboardViewController: UIInputViewController {
         guard let url = URL(string: "whisprbro://settings") else { return }
         open(url)
     }
+}
+
+/// The controller's root view: a `UIInputView` whose only job is the
+/// `UIInputViewAudioFeedback` conformance — the system honors
+/// `playInputClick()` ONLY when the visible input view opts in through this
+/// protocol. Style `.keyboard` keeps supplying the system background
+/// material the clear-background blending has always relied on.
+private final class ClickFeedbackInputView: UIInputView, UIInputViewAudioFeedback {
+    var enableInputClicksWhenVisible: Bool { true }
 }

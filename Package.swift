@@ -51,6 +51,18 @@ let package = Package(
         .target(
             name: "WhisprBroIPC"
         ),
+        // QuickType-parity autocorrect engine — one definition, two targets,
+        // the DictationActivityAttributes pattern: the appex compiles these
+        // sources through ios/project.yml's folder include of
+        // Sources/WhisprBroKeyboard, and this target exists ONLY so
+        // `swift test` covers the state machine off-device (the keyboard UI
+        // has no unit-test target by design). Foundation-only — UIKit's
+        // UITextChecker/UILexicon stay behind the injected `SpellService` —
+        // never a product, never linked by the appex.
+        .target(
+            name: "WhisprBroAutocorrect",
+            path: "Sources/WhisprBroKeyboard/AutocorrectCore"
+        ),
         .testTarget(
             name: "WhisprBroCoreTests",
             dependencies: ["WhisprBroCore"]
@@ -58,6 +70,10 @@ let package = Package(
         .testTarget(
             name: "WhisprBroIPCTests",
             dependencies: ["WhisprBroIPC"]
+        ),
+        .testTarget(
+            name: "WhisprBroAutocorrectTests",
+            dependencies: ["WhisprBroAutocorrect"]
         ),
     ]
 )

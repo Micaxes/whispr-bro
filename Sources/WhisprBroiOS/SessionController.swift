@@ -93,9 +93,10 @@ final class SessionController: ObservableObject {
     /// teardown.
     @Published private(set) var armedViaKeyboard = false
     /// The user's persisted auto-return preference (`ReturnApp.Choice`):
-    /// unset until the first keyboard-armed card asks, then a chosen app or
-    /// the explicit off. Persisted in the app's own UserDefaults — never the
-    /// App Group; the keyboard has no use for it.
+    /// unset until the Settings "Quick-return app" row picks a chosen app or
+    /// the explicit off (the session card only points there — it never
+    /// asks). Persisted in the app's own UserDefaults — never the App Group;
+    /// the keyboard has no use for it.
     @Published var returnChoice: ReturnApp.Choice = ReturnApp.Choice.from(
         stored: UserDefaults.standard.string(forKey: ReturnApp.storageKey)
     ) {
@@ -933,13 +934,12 @@ private final class SessionIPC: @unchecked Sendable {
 /// KEYBOARD-ARMED SESSIONS ONLY additionally get the return affordance
 /// (`ReturnApp.Choice`): with a remembered target the card announces
 /// "returning to <app>…" and deep-links its scheme after `autoReturnDelay` —
-/// short enough to feel automatic, though a tap anywhere still cancels. A
-/// first arm (nothing remembered) leads with the HERO picker instead: one
-/// tap picks, remembers, and returns immediately, and its opt-out line
-/// persists auto-return off for users whose app has no public scheme. Later
-/// cards carry a small "change" line to re-pick or turn auto-return off. The
-/// swipe-back line always remains — it is the only return path for apps
-/// outside the allowlist.
+/// short enough to feel automatic, though a tap anywhere still cancels.
+/// Choosing that target lives ONLY in Settings ("Quick-return app"): the
+/// card never asks — `.unset` renders a single non-interactive pointer line
+/// to the Settings row and `.off` renders nothing, so the arming screen
+/// never blocks on input. The swipe-back line always remains — it is the
+/// only return path for apps outside the allowlist.
 struct SessionCardView: View {
     @ObservedObject var session: SessionController
     @State private var slide = false
@@ -950,9 +950,6 @@ struct SessionCardView: View {
     /// Non-nil while the auto-switchback countdown runs.
     @State private var pendingReturn: ReturnApp?
     @State private var returnTask: Task<Void, Never>?
-    /// The "change" affordance re-opened the hero picker over a remembered
-    /// (or off) choice; resets with the card — each presentation is fresh.
-    @State private var repicking = false
 
     /// Delay between the card appearing with a remembered target and its
     /// scheme being opened. Everything the mic needs is already settled
@@ -1019,8 +1016,8 @@ struct SessionCardView: View {
             .multilineTextAlignment(.center)
         }
         // The auto-switchback cancel: any tap on the card within the window
-        // stays here (buttons inside — END SESSION, the picker chips — still
-        // win their own taps). A no-op when no countdown is running.
+        // stays here (END SESSION still wins its own tap). A no-op when no
+        // countdown is running.
         .contentShape(Rectangle())
         .onTapGesture { cancelAutoReturn() }
         .onAppear {
@@ -1038,107 +1035,34 @@ struct SessionCardView: View {
 
     /// The switchback affordance, keyboard-armed sessions only (an Action
     /// Button / Control Center / Shortcuts arm has no "app the user was
-    /// typing in" to return to): the countdown announcement while one runs;
-    /// otherwise the hero picker (never asked, or re-picking via "change")
-    /// or the small status line naming the current choice. Nothing at all
-    /// when no curated app is installed — the swipe-back line above is the
-    /// honest instruction then.
+    /// typing in" to return to). Exactly three states: the countdown
+    /// announcement while one runs; `.unset` → one static pointer line to
+    /// the Settings "Quick-return app" row (deliberately NOT a button — the
+    /// arming screen never blocks on input, and a tappable line here would
+    /// race the tap-to-cancel gesture); `.off` → nothing, the swipe-back
+    /// line above is the whole story. Also nothing when no curated app is
+    /// installed — pointing at an empty Settings list would be a dead end.
     @ViewBuilder private var returnAffordance: some View {
         if let app = pendingReturn {
             Text("returning to \(app.name)… tap anywhere to stay")
                 .font(Brand.mono(11, .medium)).tracking(0.5)
                 .foregroundStyle(Brand.lightMono)
-        } else if session.armedViaKeyboard, !installedReturnApps.isEmpty {
-            switch (repicking, effectiveChoice) {
-            case (true, _), (false, .unset):
-                returnPicker
-            case (false, .app(let app)):
-                changeLine("auto-returns to \(app.name) ·")
-            case (false, .off):
-                changeLine("auto-return is off ·")
-            }
+        } else if session.armedViaKeyboard, !installedReturnApps.isEmpty,
+                  effectiveChoice == .unset {
+            Text("auto-return is off — pick a quick-return app in whispr settings")
+                .font(Brand.mono(11)).foregroundStyle(Brand.lightMono)
         }
     }
 
     /// The remembered choice with an uninstalled target degraded to `unset`:
-    /// an app deleted since it was picked simply re-asks — never a dead
-    /// "auto-returns to …" line.
+    /// an app deleted since it was picked simply shows the Settings pointer
+    /// again — never a dead countdown.
     private var effectiveChoice: ReturnApp.Choice {
         if case .app(let app) = session.returnChoice,
            !installedReturnApps.contains(app) {
             return .unset
         }
         return session.returnChoice
-    }
-
-    /// The hero picker — the card's centerpiece on a first keyboard arm:
-    /// every installed curated app as a large tap target; ONE tap picks,
-    /// remembers (`SessionController.returnChoice`), and returns
-    /// immediately — no confirm step. The opt-out line persists `.off`, so
-    /// users whose app has no public scheme are asked exactly once.
-    /// `ViewThatFits` keeps a long list scrollable instead of clipping small
-    /// screens.
-    private var returnPicker: some View {
-        VStack(spacing: 16) {
-            Text("where should whispr send you back?")
-                .font(Brand.sans(19, .semibold))
-                .foregroundStyle(Brand.paper)
-            ViewThatFits(in: .vertical) {
-                pickerGrid
-                ScrollView(showsIndicators: false) { pickerGrid }
-                    .frame(maxHeight: 240)
-            }
-            Button {
-                session.returnChoice = .off
-                repicking = false
-            } label: {
-                Text("my app isn't here — I'll just swipe back")
-                    .font(Brand.mono(11, .medium)).tracking(0.5)
-                    .foregroundStyle(Brand.lightMono)
-                    .underline()
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private var pickerGrid: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10
-        ) {
-            ForEach(installedReturnApps) { app in
-                Button {
-                    session.returnChoice = .app(app) // remembered for next time
-                    repicking = false
-                    open(app)
-                } label: {
-                    Text(app.name)
-                        .font(Brand.sans(15, .medium))
-                        .foregroundStyle(Brand.paper)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 13)
-                        .overlay(Capsule().stroke(
-                            Brand.lightMono.opacity(0.5), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 2) // keep the capsule strokes unclipped
-    }
-
-    /// The later-sessions affordance: one small line naming the current
-    /// choice, with "change" re-opening the hero picker (re-pick, or turn
-    /// auto-return off via its opt-out line).
-    private func changeLine(_ status: String) -> some View {
-        Button {
-            repicking = true
-        } label: {
-            HStack(spacing: 5) {
-                Text(status).foregroundStyle(Brand.lightMono)
-                Text("change").foregroundStyle(Brand.paper).underline()
-            }
-            .font(Brand.mono(11, .medium)).tracking(0.5)
-        }
-        .buttonStyle(.plain)
     }
 
     /// Arms the auto-switchback countdown: keyboard-armed session + a
@@ -1172,9 +1096,23 @@ struct SessionCardView: View {
         pendingReturn = nil
     }
 
+    /// Opens the remembered target. A failed `open` (scheme dead despite an
+    /// earlier `canOpenURL` yes — restricted, the scheme changed across
+    /// versions, or a TRANSIENT failure like the app mid-update) skips the
+    /// return for this session only: the countdown line clears and the
+    /// Settings-chosen `returnChoice` is KEPT — wiping a deliberate choice
+    /// over a possibly transient failure would silently undo the user's
+    /// configuration. A CONFIRMED uninstall needs no handling here: it
+    /// already degrades at card appearance (`canOpenURL` false drops the app
+    /// from `installedReturnApps`, so `effectiveChoice` shows the Settings
+    /// pointer and `armAutoReturn` never arms). Retargeting on failure is
+    /// impossible either way: learning the host app is impossible on this OS
+    /// (see ReturnApp's head doc).
     private func open(_ app: ReturnApp) {
         guard let url = URL(string: app.scheme) else { return }
-        UIApplication.shared.open(url)
+        UIApplication.shared.open(url, options: [:]) { success in
+            if !success { pendingReturn = nil }
+        }
     }
 
     private var expiryLine: String {

@@ -5,7 +5,8 @@ import UIKit
 /// programmatic return-to-host path is dead (DTS-confirmed: _hostBundleID,
 /// LSApplicationWorkspace, suspend — all closed) and the keyboard cannot even
 /// NAME its host app, so the only thing the app can do is deep-link an app
-/// the USER chose and remember that choice (`SessionController.returnChoice`).
+/// the USER chose in Settings ("Quick-return app") and remember that choice
+/// (`SessionController.returnChoice`).
 /// The list is a fixed allowlist of public URL schemes, each also declared in
 /// ios/App-Info.plist's LSApplicationQueriesSchemes (the `canOpenURL`
 /// requirement — keep the two lists in EXACT step; Apple caps declarations at
@@ -31,9 +32,9 @@ struct ReturnApp: Identifiable, Equatable {
     /// app-side only, never the App Group (the keyboard has no use for it).
     static let storageKey = "sessionReturnApp"
 
-    /// The allowlist. Order is the picker order; keep it to apps with a
-    /// stable, documented public scheme (and an unsurprising open — see the
-    /// sms:/mailto: exclusion above).
+    /// The allowlist. Order is the Settings-row order; keep it to apps with
+    /// a stable, documented public scheme (and an unsurprising open — see
+    /// the sms:/mailto: exclusion above).
     static let curated: [ReturnApp] = [
         ReturnApp(id: "claude", name: "Claude", scheme: "claude://"),
         ReturnApp(id: "chatgpt", name: "ChatGPT", scheme: "chatgpt://"),
@@ -60,7 +61,7 @@ struct ReturnApp: Identifiable, Equatable {
     /// The curated apps actually installed on this device, via `canOpenURL`
     /// (main-thread UIKit — call from view appearance, never a background
     /// queue). A remembered app that was since uninstalled simply drops out,
-    /// and the card quietly falls back to the picker row.
+    /// and the card quietly falls back to its Settings pointer line.
     @MainActor static func installed() -> [ReturnApp] {
         curated.filter { app in
             guard let url = URL(string: app.scheme) else { return false }
@@ -76,11 +77,13 @@ struct ReturnApp: Identifiable, Equatable {
     }
 
     /// The persisted auto-return preference — one UserDefaults slot, three
-    /// honest states: never asked (`unset` — the session card leads with the
-    /// hero picker), explicitly declined (`off` — the swipe-back line is the
-    /// whole story), or a chosen app. `off` is a sentinel VALUE in the same
-    /// slot so "asked and declined" survives relaunches distinctly from
-    /// "never asked".
+    /// honest states: never chosen (`unset` — the session card shows one
+    /// non-interactive pointer line to the Settings "Quick-return app" row;
+    /// a chosen-but-uninstalled app renders the same way via the card's
+    /// `effectiveChoice`, without touching this slot), explicitly declined
+    /// (`off` — the swipe-back line is the whole story), or a chosen app.
+    /// `off` is a sentinel VALUE in the same slot so "chose off" survives
+    /// relaunches distinctly from "never chose".
     enum Choice: Equatable {
         case unset
         case off
@@ -90,7 +93,8 @@ struct ReturnApp: Identifiable, Equatable {
         private static let offValue = "off"
 
         /// Decodes the persisted string. An unknown id (allowlist edited
-        /// across versions) decodes as `unset` — the card simply asks again.
+        /// across versions) decodes as `unset` — back to the Settings
+        /// pointer.
         static func from(stored: String?) -> Choice {
             guard let stored else { return .unset }
             if stored == offValue { return .off }

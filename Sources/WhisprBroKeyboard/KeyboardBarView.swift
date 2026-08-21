@@ -55,17 +55,25 @@ enum Palette {
     })
 }
 
-/// The keyboard surface (issue #13 P4, layout rev): a compact toolbar row —
-/// [status strip, flexible][settings gear][✕ while recording][mic, far
-/// right] — above a standard iOS-style typing grid (`KeyGrid`). Without Full
-/// Access the strip + mic give way to an inline explainer (the app connection
-/// needs the App Group, which iOS only grants an open-access keyboard) while
-/// typing keeps working and the gear stays reachable. The globe key lives in
-/// the grid's bottom row — it must forward the raw UIEvent to
-/// `handleInputModeList`, hence the weak `controller` reference threaded
-/// through to `GlobeKey`.
+/// The keyboard surface (issue #13 P4, native-parity rev): a compact toolbar
+/// row — [status strip / suggestion strip, flexible][settings gear][✕ while
+/// recording][mic, far right] — above a standard iOS-style typing grid
+/// (`KeyGrid`). The QuickType suggestion bar lives IN the toolbar's flexible
+/// middle, contextually swapped with the status strip (total height stays
+/// 260pt — stacking a second bar would starve host viewports): every live
+/// dictation state keeps the strip, suggestions take only the lowest-value
+/// idle slot. Without Full Access, suggestions show while a word is being
+/// typed (`UITextChecker` needs no Full Access) and the inline explainer
+/// keeps its onboarding job at idle (the app connection needs the App Group,
+/// which iOS only grants an open-access keyboard); typing keeps working and
+/// the gear stays reachable. The globe key lives in the grid's bottom row —
+/// it must forward the raw UIEvent to `handleInputModeList`, hence the weak
+/// `controller` reference threaded through to `GlobeKey`. The key-pop
+/// balloons render in an overlay spanning this WHOLE view (a pressed row-1
+/// key pops over the toolbar) from `CharKey`'s anchor preference.
 struct KeyboardBar: View {
     @ObservedObject var session: KeyboardSession
+    @ObservedObject var autocorrect: AutocorrectController
     weak var controller: UIInputViewController?
     var insertCharacter: (String) -> Void
     var deleteBackward: () -> Void
@@ -76,14 +84,21 @@ struct KeyboardBar: View {
         VStack(spacing: 8) {
             HStack(spacing: 6) {
                 if session.hasFullAccess {
-                    StatusStrip(session: session)
+                    if showsSuggestions {
+                        SuggestionStrip(bar: autocorrect.bar) { autocorrect.tapSuggestion($0) }
+                    } else {
+                        StatusStrip(session: session)
+                    }
                     SettingsKey(open: openSettings)
                     if session.phase == .recording || session.phase == .starting {
                         CancelKey { session.cancelTapped() }
                     }
                     MicKey(phase: session.phase) { session.micTapped() }
-                } else {
+                } else if autocorrect.bar.isEmpty {
                     FullAccessPanel()
+                    SettingsKey(open: openSettings)
+                } else {
+                    SuggestionStrip(bar: autocorrect.bar) { autocorrect.tapSuggestion($0) }
                     SettingsKey(open: openSettings)
                 }
             }
@@ -92,11 +107,89 @@ struct KeyboardBar: View {
 
             KeyGrid(
                 session: session,
+                autocorrect: autocorrect,
                 controller: controller,
                 insertCharacter: insertCharacter,
                 deleteBackward: deleteBackward,
                 insertNewline: insertNewline)
         }
+        .overlayPreferenceValue(KeyCalloutKey.self) { callout in
+            // The balloon must rise ABOVE its key row — over the toolbar for
+            // row 1 — so it draws here, over the whole bar, never inside a
+            // key's own bounds. (iPhone-only: `CharKey` publishes no anchor
+            // on pad.)
+            GeometryReader { geo in
+                if let callout {
+                    KeyCalloutBalloon(
+                        cap: callout.cap,
+                        keyRect: geo[callout.anchor],
+                        containerWidth: geo.size.width)
+                }
+            }
+            .allowsHitTesting(false)
+        }
+    }
+
+    /// D1 strip-middle precedence, highest first: recording waveform/partials
+    /// → pendingResult → error → arming hint → arming/armed/starting/
+    /// transcribing/bounce labels → suggestions (when non-empty) → idle
+    /// label. Everything above suggestions is a live dictation state or an
+    /// active complaint — only the idle line ("tap mic to arm…") gives way.
+    private var showsSuggestions: Bool {
+        !autocorrect.bar.isEmpty
+            && session.phase == .idle
+            && session.sessionError == .none
+            && !session.showsArmingHint
+    }
+}
+
+// MARK: - Suggestion strip (QuickType bar)
+
+/// The three QuickType cells in the toolbar's flexible middle: quoted literal
+/// left (native convention), correction/word center, alternate right, split
+/// by hairlines on a transparent background — like the system bar, at the
+/// toolbar's 40pt (vs native 45pt, the accepted delta). Cell semantics and
+/// tap behavior live in `AutocorrectEngine`; this view only renders `Bar`.
+private struct SuggestionStrip: View {
+    let bar: AutocorrectEngine.Bar
+    let tap: (AutocorrectEngine.BarSlot) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            cell(bar.literalCell.map { "\u{201C}\($0)\u{201D}" }, slot: .literal)
+            separator
+            cell(bar.primary, slot: .primary)
+            separator
+            cell(bar.alternate, slot: .alternate)
+        }
+        .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40)
+    }
+
+    /// One cell — an empty slot keeps its third of the width so occupied
+    /// cells don't jump around as candidates come and go.
+    @ViewBuilder
+    private func cell(_ label: String?, slot: AutocorrectEngine.BarSlot) -> some View {
+        if let label {
+            Button { tap(slot) } label: {
+                Text(label)
+                    .font(.system(size: 17))
+                    .foregroundStyle(Palette.keyText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .padding(.horizontal, 4)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var separator: some View {
+        Rectangle()
+            .fill(Palette.keyTextSecondary.opacity(0.3))
+            .frame(width: 1, height: 22)
     }
 }
 

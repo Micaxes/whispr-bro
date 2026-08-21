@@ -80,6 +80,11 @@ final class KeyboardSession: ObservableObject {
     /// key. Defaults true — showing a redundant globe is safe, omitting a
     /// required one is a rejection.
     @Published var needsInputModeSwitchKey = true
+    /// Mirrored from `textDocumentProxy.returnKeyType` (viewDidLoad +
+    /// textDidChange — it can change per host field): the grid's return key
+    /// renders this caption ("return", "go", "search", …) like the system
+    /// keyboard's.
+    @Published var returnKeyLabel = "return"
 
     /// False = `SharedContainer.url()` found no App Group container (the
     /// documented degraded mode: entitlement absent under free-personal-team

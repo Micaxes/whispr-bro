@@ -4,7 +4,7 @@ import WhisprBroCore
 /// Settings sheet: dictation language (English = fast Parakeet v2; it/es need
 /// the multilingual v3, gated on it being installed), Auto-Clean level (same
 /// UserDefaults keys as macOS), history toggle, keyboard-session idle expiry
-/// + the opt-in Live Activity, and the privacy card.
+/// + the opt-in Live Activity, the quick-return app, and the privacy card.
 struct SettingsSheet: View {
     @EnvironmentObject private var model: DictationModel
     @ObservedObject private var session = AppModel.session
@@ -14,6 +14,9 @@ struct SettingsSheet: View {
     /// default off): read at every activity request, so flipping it needs no
     /// restart — the next session start honors it.
     @AppStorage(DictationActivityController.enabledKey) private var liveActivityEnabled = false
+    /// Curated return apps actually installed, resolved on appearance
+    /// (`canOpenURL` is main-thread UIKit — see `ReturnApp.installed()`).
+    @State private var installedReturnApps: [ReturnApp] = []
 
     private var selectedLanguage: DictationLanguage {
         DictationLanguage(rawValue: languageRaw) ?? .english
@@ -26,8 +29,10 @@ struct SettingsSheet: View {
                 cleanupSection
                 historySection
                 keyboardSection
+                quickReturnSection
                 privacySection
             }
+            .onAppear { installedReturnApps = ReturnApp.installed() }
             .scrollContentBackground(.hidden)
             .background(Brand.paper.ignoresSafeArea())
             .navigationTitle("Settings")
@@ -165,6 +170,41 @@ struct SettingsSheet: View {
         }
     }
 
+    // MARK: Quick-return app
+
+    /// The ONE home of the auto-return choice (`SessionController.
+    /// returnChoice`) — the session card only points here, it never asks.
+    /// An "Off" row plus every curated `ReturnApp` actually installed; a
+    /// never-touched slot (`Choice.unset`) checks nothing, and the first tap
+    /// on any row resolves it.
+    private var quickReturnSection: some View {
+        Section {
+            Button {
+                session.returnChoice = .off
+            } label: {
+                row(
+                    title: "Off",
+                    subtitle: "The session card just says swipe back",
+                    selected: session.returnChoice == .off)
+            }
+            ForEach(installedReturnApps) { app in
+                Button {
+                    session.returnChoice = .app(app)
+                } label: {
+                    row(title: app.name, selected: session.returnChoice == .app(app))
+                }
+            }
+        } header: {
+            header("Quick-return app")
+        } footer: {
+            footer("After the whispr keyboard arms a session, jump straight back to "
+                + "the app picked here — iOS never tells whispr which app you came "
+                + "from, so the pick is yours. Only installed apps with a public link "
+                + "scheme can be listed; for anything else, swiping back always works.")
+        }
+        .listRowBackground(Brand.raised)
+    }
+
     // MARK: Privacy
 
     private var privacySection: some View {
@@ -200,11 +240,13 @@ struct SettingsSheet: View {
         Text(text).font(Brand.sans(12)).foregroundStyle(Brand.mist)
     }
 
-    private func row(title: String, subtitle: String, selected: Bool) -> some View {
+    private func row(title: String, subtitle: String? = nil, selected: Bool) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title).font(Brand.sans(15)).foregroundStyle(Brand.ink)
-                Text(subtitle).font(Brand.sans(12)).foregroundStyle(Brand.mist)
+                if let subtitle {
+                    Text(subtitle).font(Brand.sans(12)).foregroundStyle(Brand.mist)
+                }
             }
             Spacer()
             if selected {
