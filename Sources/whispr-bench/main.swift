@@ -37,6 +37,8 @@ struct WhisprBench {
             await runDict(transcript: args[1])
         case "cleanup" where args.count >= 2:
             await runCleanup(transcript: args[1])
+        case "eval":
+            await runEval(Array(args.dropFirst()))
         case "history":
             await runHistory()
         case "verify":
@@ -56,6 +58,15 @@ struct WhisprBench {
               whispr-bench style "<text>"             # format one sentence under every per-app style (default model)
               whispr-bench dict "<text>"              # full dictionary→LLM→dictionary flow (uses config.toml)
               whispr-bench cleanup "<text>"           # Auto-Clean: filler strip → LLM self-correction (standard)
+              whispr-bench eval [fixtures.json] [--formatter rules|llama|foundation|all]
+                                                      # formatter quality gate: WER / punctuation F1 / case
+                                                      #   accuracy vs hand-authored golds (default: seed set)
+                                                      #   model rows print fallback provenance; a column with
+                                                      #   failure fallbacks is INVALID (exits non-zero)
+                                                      #   foundation = the iOS Apple Foundation Models stage,
+                                                      #   measured on THIS Mac (needs macOS 26 + Apple Intelligence)
+                                                      #   personal fixtures: copy a History row's raw text into
+                                                      #   [{"id":…,"raw":<rawText>,"gold":<hand-corrected>}]
               whispr-bench history                    # FTS5 acceptance: 1k rows, search latency
               whispr-bench verify                     # ModelManager: on-disk sha256 verify of every model set
 
@@ -145,6 +156,237 @@ struct WhisprBench {
         print("stripped: \(stripped)")
         print(String(format: "cleaned:  %@   (%.0fms)", out as NSString, seconds * 1000))
         await engine.unload()
+    }
+
+    /// Formatter quality gate (docs/llm-measurement-gate.md: no quality claims
+    /// without a measured basis). Scores each formatter stage against hand-
+    /// authored golds on three independent axes — word WER (punctuation/case-
+    /// blind), punctuation F1 keyed by the aligned gold word, case accuracy —
+    /// plus a raw-vs-gold baseline column so each stage's lift is visible.
+    /// Text-only: fixtures enter at the post-ASR, post-dictionary stage
+    /// (`HistoryRecord.rawText`) and mirror the pipeline order strip → format.
+    static func runEval(_ rest: [String]) async {
+        var fixturesPath: String?
+        var which = "all"
+        var i = 0
+        while i < rest.count {
+            if rest[i] == "--formatter", i + 1 < rest.count {
+                which = rest[i + 1]; i += 2
+            } else {
+                fixturesPath = rest[i]; i += 1
+            }
+        }
+        guard ["rules", "llama", "foundation", "all"].contains(which) else {
+            print("unknown --formatter '\(which)' (rules | llama | foundation | all)"); exit(64)
+        }
+        let cases: [EvalCase]
+        if let fixturesPath {
+            do {
+                let data = try Data(contentsOf: URL(fileURLWithPath: fixturesPath))
+                cases = try JSONDecoder().decode([EvalCase].self, from: data)
+            } catch {
+                print("could not load fixtures from \(fixturesPath): \(error.localizedDescription)")
+                exit(64)
+            }
+        } else {
+            cases = EvalCase.seeds
+        }
+        guard !cases.isEmpty else { print("no fixtures in \(fixturesPath ?? "seeds")"); exit(64) }
+
+        // The llama column mirrors runCleanup's bring-up: default model, the
+        // unknown-register directive + correction clause (level = standard).
+        // Skipped gracefully when the model isn't installed so the rule-based
+        // column still runs on a machine without the GGUFs.
+        var llamaFormatter: TextFormatter?
+        var llamaEngine: LlamaCppEngine?
+        if which == "llama" || which == "all" {
+            let spec = LlmCatalog.default
+            if spec.isInstalled {
+                let engine = LlamaCppEngine(
+                    modelPath: spec.fileURL, promptBuilder: PromptBuilder(family: spec.family))
+                let formatter = TextFormatter(engine: engine)
+                do {
+                    try await formatter.load()
+                    llamaFormatter = formatter
+                    llamaEngine = engine
+                } catch {
+                    print("llama load failed (\(error.localizedDescription)) — rule-based only\n")
+                }
+            } else {
+                print("llama column skipped: \(spec.key) not installed (scripts/fetch-llm-models.sh)\n")
+            }
+        }
+        // The foundation column measures the ACTUAL iOS phase-i4 stage
+        // (FoundationModelsFormatter over the Apple system model) on this Mac
+        // — same framework, same wrapper, so scores transfer; only absolute
+        // latency differs from a phone. Runtime-gated: needs macOS 26 with
+        // Apple Intelligence enabled and model assets ready — skipped with
+        // the exact reason otherwise (measure, never assume). `formatDetailed`
+        // so a per-row fallback is visible: `isSupported` at bring-up does NOT
+        // prove the daemon stays healthy for all 17 requests.
+        var fmFormat: ((String, String) async -> (text: String, source: FormatterSource, rejected: String?))?
+        #if canImport(FoundationModels)
+        if which == "foundation" || which == "all" {
+            if #available(macOS 26.0, *) {
+                if FoundationModelsFormatter.isSupported {
+                    let fm = FoundationModelsFormatter(language: .english)
+                    // Kicks off the system-model load; the remainder is
+                    // absorbed by the first request (watch fixture #1's
+                    // latency vs the rest, as on-device).
+                    await fm.prewarm()
+                    print("foundation: available — prewarmed\n")
+                    fmFormat = { stripped, directive in
+                        await fm.formatDetailed(stripped, styleDirective: directive, resolveCorrections: true)
+                    }
+                } else {
+                    print("foundation column skipped: \(FoundationModelsFormatter.availabilityDescription)\n")
+                }
+            } else {
+                print("foundation column skipped: needs macOS 26\n")
+            }
+        }
+        #else
+        if which == "foundation" || which == "all" {
+            print("foundation column skipped: FoundationModels not in this SDK\n")
+        }
+        #endif
+        let directive = StyleRules().directive(for: .unknown) + "\n\n" + PromptBuilder.correctionClause
+        let stripper = FillerStripper()
+
+        var baseScores: [TranscriptScore] = []
+        var ruleScores: [TranscriptScore] = []
+        var llamaScores: [TranscriptScore] = []
+        var llamaLatencies: [Double] = []
+        var llamaSources: [FormatterSource] = []
+        var fmScores: [TranscriptScore] = []
+        var fmLatencies: [Double] = []
+        var fmSources: [FormatterSource] = []
+        for c in cases {
+            let stripped = stripper.strip(c.raw)
+            let base = TranscriptScore.score(hypothesis: c.raw, gold: c.gold)
+            baseScores.append(base)
+            print("[\(c.id)]" + (c.note.map { "  (\($0))" } ?? ""))
+            print("  raw:   \(c.raw)")
+            print("  gold:  \(c.gold)")
+            print("  base:  \(describe(base))")
+            if which == "rules" || which == "all" {
+                let out = TextFormatter.ruleBasedCleanup(stripped)
+                let score = TranscriptScore.score(hypothesis: out, gold: c.gold)
+                ruleScores.append(score)
+                print("  rules: \(describe(score))  → \(out)")
+            }
+            if let formatter = llamaFormatter {
+                let (result, seconds) = await measured {
+                    await formatter.formatDetailed(stripped, rawMode: false, styleDirective: directive,
+                                                   resolveCorrections: true)
+                }
+                let score = TranscriptScore.score(hypothesis: result.text, gold: c.gold)
+                llamaScores.append(score)
+                llamaLatencies.append(seconds)
+                llamaSources.append(result.source)
+                print(String(format: "  llama: %@  (%.0fms)%@  → %@",
+                             describe(score), seconds * 1000, annotate(result.source),
+                             result.text as NSString))
+            }
+            if let fmFormat {
+                let (result, seconds) = await measured { await fmFormat(stripped, directive) }
+                let score = TranscriptScore.score(hypothesis: result.text, gold: c.gold)
+                fmScores.append(score)
+                fmLatencies.append(seconds)
+                fmSources.append(result.source)
+                print(String(format: "  fm:    %@  (%.0fms)%@  → %@",
+                             describe(score), seconds * 1000, annotate(result.source),
+                             result.text as NSString))
+                // The gate's evidence: WHAT the model produced that was
+                // refused (answer, commentary, runaway) — not just that the
+                // row fell back.
+                if let rejected = result.rejected {
+                    print("         rejected model output → "
+                          + rejected.replacingOccurrences(of: "\n", with: " ⏎ "))
+                }
+            }
+            print("")
+        }
+
+        print("aggregate (n=\(cases.count), micro-averaged)")
+        printAggregate("baseline", baseScores, latencies: nil)
+        if !ruleScores.isEmpty { printAggregate("rules", ruleScores, latencies: nil) }
+        if !llamaScores.isEmpty { printAggregate("llama", llamaScores, latencies: llamaLatencies) }
+        if !fmScores.isEmpty { printAggregate("foundation", fmScores, latencies: fmLatencies) }
+        // Per-column fallback accounting — the honesty rail: a model row that
+        // partly measured the RULES path must never read as model evidence.
+        var modelEvidenceOK = true
+        if !llamaScores.isEmpty {
+            modelEvidenceOK = printFallbacks("llama", llamaSources) && modelEvidenceOK
+        }
+        if !fmScores.isEmpty {
+            modelEvidenceOK = printFallbacks("foundation", fmSources) && modelEvidenceOK
+        }
+        // Free GPU buffers before exit or ggml-metal asserts at teardown.
+        await llamaEngine?.unload()
+        if !modelEvidenceOK { exit(1) }
+    }
+
+    /// A loud per-row provenance marker: any row that is not pure model
+    /// output is labeled where it happened, not only in the aggregate.
+    private static func annotate(_ source: FormatterSource) -> String {
+        switch source {
+        case .model: return ""
+        case .fallback(.fastPath): return "  [fast-path]"
+        case .fallback(let reason): return "  [FELL BACK: \(reason.rawValue)]"
+        }
+    }
+
+    /// Prints a model column's fallback totals; returns false when the column
+    /// is INVALID as model evidence. Fast-path (and raw-mode) fallbacks are
+    /// the stage's deterministic DESIGN — the model is skipped on short
+    /// utterances on-device too — so they are printed but don't invalidate.
+    /// Failure fallbacks (unavailable / request-failed / timed-out /
+    /// implausible) mean those rows scored `ruleBasedCleanup`, not the model:
+    /// the column is flagged INVALID and the bench exits non-zero, so a run
+    /// during a Foundation Models daemon outage (observed live as
+    /// ModelManagerError 1013 — every row silently rules output) can no
+    /// longer pass as an official-looking model measurement.
+    private static func printFallbacks(_ name: String, _ sources: [FormatterSource]) -> Bool {
+        var designed = 0
+        var failures: [String: Int] = [:]
+        for source in sources {
+            guard case .fallback(let reason) = source else { continue }
+            switch reason {
+            case .fastPath, .rawMode: designed += 1
+            default: failures[reason.rawValue, default: 0] += 1
+            }
+        }
+        let failureCount = failures.values.reduce(0, +)
+        let label = name.padding(toLength: 10, withPad: " ", startingAt: 0)
+        var line = "  \(label) fallbacks: \(failureCount)/\(sources.count)"
+        if !failures.isEmpty {
+            line += " (" + failures.sorted { $0.key < $1.key }
+                .map { "\($0.key) ×\($0.value)" }.joined(separator: ", ") + ")"
+        }
+        if designed > 0 { line += " + \(designed) fast-path (by design)" }
+        print(line)
+        guard failureCount > 0 else { return true }
+        print("  \(label) INVALID — \(failureCount)/\(sources.count) fell back to rules; " +
+              "NOT model evidence")
+        return false
+    }
+
+    private static func describe(_ s: TranscriptScore) -> String {
+        String(format: "wer %.2f | punctF1 %.2f | case %.2f", s.wer, s.punctF1, s.caseAccuracy)
+    }
+
+    private static func printAggregate(_ name: String, _ scores: [TranscriptScore], latencies: [Double]?) {
+        let a = TranscriptScore.aggregate(scores)
+        let label = name.padding(toLength: 10, withPad: " ", startingAt: 0)
+        var line = String(format: "  %@ wer %.3f | punct P %.2f R %.2f F1 %.3f | case %.3f",
+                          label as NSString, a.wer, a.punctPrecision, a.punctRecall, a.punctF1,
+                          a.caseAccuracy)
+        if let latencies, !latencies.isEmpty {
+            let avg = latencies.reduce(0, +) / Double(latencies.count)
+            line += String(format: " | avg %.0fms worst %.0fms", avg * 1000, (latencies.max() ?? 0) * 1000)
+        }
+        print(line)
     }
 
     static func runStyle(transcript: String) async {

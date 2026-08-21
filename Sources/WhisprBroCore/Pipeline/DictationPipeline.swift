@@ -8,10 +8,9 @@ import Foundation
 /// the shared samples → final-text path lives here.
 ///
 /// The formatter stage is injected because it is the one platform-divergent
-/// stage: macOS supplies the LLM `TextFormatter.format` (which degrades to the
-/// rule-based result internally); iOS phase i1 supplies
-/// `TextFormatter.ruleBasedCleanup` until Apple Foundation Models formatting
-/// lands (phase i4).
+/// stage: macOS supplies the LLM `TextFormatter.format`; iOS (phase i4)
+/// supplies `FoundationModelsFormatter.format`. Both degrade to the rule-based
+/// result internally, so a dictation always lands.
 public struct DictationPipeline: Sendable {
     /// What downstream (insertion/pasteboard, history, UI) needs from one run.
     public struct Outcome: Sendable {

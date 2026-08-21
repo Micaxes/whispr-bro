@@ -5,13 +5,14 @@ import os.log
 import UIKit
 import WhisprBroCore
 
-/// The iOS in-app dictation pipeline (issue #13 phase i1): tap → mic → (VAD
-/// trim) → ASR → dictionary → filler strip → rule-based cleanup → pasteboard +
-/// history. The macOS state machine minus hotkeys, insertion, and the LLM —
-/// Apple Foundation Models formatting lands in phase i4, so cleanup here is
-/// deterministic only. Mic-on-demand semantics are identical to macOS: the
-/// audio session activates in `startCapture()` and deactivates at stop, so the
-/// iOS mic indicator is lit only while a dictation is in progress.
+/// The iOS in-app dictation pipeline (issue #13 phases i1 + i4): tap → mic →
+/// (VAD trim) → ASR → dictionary → filler strip → formatter → pasteboard +
+/// history. The macOS state machine minus hotkeys and insertion; the formatter
+/// stage (phase i4) is the on-device Apple Foundation Models cleanup with
+/// `TextFormatter.ruleBasedCleanup` as its always-available fallback (llama on
+/// iOS is deferred — a future A/B). Mic-on-demand semantics are identical to
+/// macOS: the audio session activates in `startCapture()` and deactivates at
+/// stop, so the iOS mic indicator is lit only while a dictation is in progress.
 @MainActor
 final class DictationModel: ObservableObject {
     enum State: Equatable {
@@ -82,6 +83,15 @@ final class DictationModel: ObservableObject {
     /// Auto-Clean gating → formatter) — core-owned so the gating rules can
     /// never drift from macOS.
     private let pipeline: DictationPipeline
+    #if canImport(FoundationModels)
+    /// Phase i4 formatter stage: the on-device Apple Foundation Models cleanup,
+    /// injected at the same pipeline seam where macOS injects its llama stage.
+    /// Created unconditionally — availability (A17 Pro+, Apple Intelligence
+    /// on, model assets ready) is a PER-CALL gate inside `format()`, because
+    /// `.modelNotReady` can flip to available mid-session; an unavailable
+    /// model degrades to the deterministic rule-based cleanup internally.
+    private let fmFormatter: FoundationModelsFormatter
+    #endif
     private var dictionary = DictionaryEngine(rules: [])
     private var fillerStripper = FillerStripper()
     private let modelDir: URL
@@ -115,6 +125,9 @@ final class DictationModel: ObservableObject {
         asr = ParakeetEngine(modelsDir: modelsDir, version: dictationLanguage.parakeetVersion)
         #endif
         pipeline = DictationPipeline(asr: asr)
+        #if canImport(FoundationModels)
+        fmFormatter = FoundationModelsFormatter(language: dictationLanguage)
+        #endif
         let vadRelative = "silero-vad/\(Paths.vadModelFile.lastPathComponent)"
         let vadDir = Self.installLocation(of: vadRelative) ?? Paths.modelsDir
         vad = VadGate(modelFile: vadDir.appendingPathComponent(vadRelative, isDirectory: true))
@@ -192,6 +205,12 @@ final class DictationModel: ObservableObject {
             // mic indicator lights only while a dictation is in progress (see
             // AudioEngine "prepare-ahead").
             try audio.prepare()
+            #if canImport(FoundationModels)
+            // Warm the Foundation Models stage off the dictation path — cuts
+            // the first dictation's first-token latency. No-op when the model
+            // is unavailable (re-tried per dictation in prepareFormatter).
+            await fmFormatter.prewarm()
+            #endif
             state = .idle
             log.info("pipeline up: audio prepared (mic opens on dictation), models loaded (vad: \(self.vadAvailable))")
         } catch WhisprError.modelsNotFound {
@@ -302,26 +321,49 @@ final class DictationModel: ObservableObject {
     // MARK: - Transcribe → clean → pasteboard + history
 
     /// The one post-capture pipeline — the shared `DictationPipeline` (VAD
-    /// trim → ASR → dictionary ONCE → Auto-Clean gating) with rule-based
-    /// cleanup as the injected formatter stage (no LLM until phase i4) —
-    /// publishing to the UI + pasteboard and persisting history. Shared by
-    /// the mic stop path and the DEBUG `--dictate-file` smoke hook so a
-    /// file-driven run proves the exact stages a live dictation uses.
-    /// Returns nil when ASR produced no text.
+    /// trim → ASR → dictionary ONCE → Auto-Clean gating) with the Foundation
+    /// Models cleanup (phase i4; rule-based fallback inside) as the injected
+    /// formatter stage — publishing to the UI + pasteboard and persisting
+    /// history. Shared by the mic stop path and the DEBUG `--dictate-file`
+    /// smoke hook so a file-driven run proves the exact stages a live
+    /// dictation uses. Returns nil when ASR produced no text.
     private func runPipeline(
         _ samples: [Float], timings: StageTimings
     ) async throws -> (rawText: String, text: String, timings: StageTimings)? {
         // Snapshot so a config reload mid-dictation can't make the
         // substitution and the filler pre-pass disagree.
         let dict = dictionary
+        // Self-correction: level=standard (iOS has no per-app verbatim
+        // registers, so the level alone decides — cf. macOS PipelineController).
+        let resolveCorr = cleanupLevel == .standard
+        let style = styleDirective(dictionary: dict, resolveCorrections: resolveCorr)
         guard let outcome = try await pipeline.run(
             samples,
             trim: vadAvailable ? { await self.vad.trim($0) } : nil,
             dictionary: dict, stripper: fillerStripper,
             level: cleanupLevel, verbatimRegister: false,
             timings: timings,
-            format: {
-                TextFormatter.ruleBasedCleanup($0, preserveCasingFor: dict.lowercasedTargets)
+            prepareFormatter: {
+                // Outside the measured format call, like macOS's LLM reload:
+                // a no-op once warm, and the retry point for a model that was
+                // `.modelNotReady` at bring-up.
+                #if canImport(FoundationModels)
+                await self.fmFormatter.prewarm()
+                #endif
+            },
+            format: { cleaned in
+                // Stage 2 (phase i4): Foundation Models auto-edit. Never
+                // throws — unavailable model, timeout, or implausible output
+                // degrades to the rule-based result internally, so a
+                // dictation always lands.
+                #if canImport(FoundationModels)
+                return await self.fmFormatter.format(
+                    cleaned, styleDirective: style,
+                    preserveCasingFor: dict.lowercasedTargets,
+                    resolveCorrections: resolveCorr)
+                #else
+                return TextFormatter.ruleBasedCleanup(cleaned, preserveCasingFor: dict.lowercasedTargets)
+                #endif
             })
         else {
             state = .idle
@@ -355,9 +397,28 @@ final class DictationModel: ObservableObject {
         return (rawText: verbatimText, text: text, timings: timings)
     }
 
+    /// The formatter-stage system directive — macOS's `effectiveStyleDirective`
+    /// minus per-app registers (iOS has no frontmost-app context): the standard
+    /// register, the self-correction clause at level=standard, and the
+    /// dictionary-spellings allowlist. No control-token sanitize pass: unlike
+    /// llama's parse_special scaffolding, Foundation Models instructions are
+    /// plain text with no token-injection surface.
+    private func styleDirective(dictionary dict: DictionaryEngine, resolveCorrections: Bool) -> String {
+        var parts = [StyleRules().directive(for: .unknown)]
+        if resolveCorrections {
+            parts.append(PromptBuilder.correctionClause(for: dictationLanguage))
+        }
+        let targets = dict.canonicalTargets.prefix(30)
+        if !targets.isEmpty {
+            parts.append("Preserve these spellings exactly, do not alter their "
+                + "casing or spacing: " + targets.joined(separator: ", ") + ".")
+        }
+        return parts.joined(separator: "\n\n")
+    }
+
     /// Session-mode entry (issue #13 P4, `SessionController`): run the EXACT
     /// shared stages of `runPipeline` — VAD trim → ASR → dictionary → filler
-    /// strip → rule-based cleanup, publishing to the UI + pasteboard (the
+    /// strip → formatter stage, publishing to the UI + pasteboard (the
     /// keyboard-side fallback) and saving history — on samples the session's
     /// continuous engine captured. Returns nil when the segment is too short,
     /// ASR produced no text, or the pipeline is busy (a session dictation
@@ -435,7 +496,7 @@ final class DictationModel: ObservableObject {
 
     /// Simulator smoke hook: runs the file through the EXACT mic pipeline
     /// (`runPipeline`: VAD trim → ASR → dictionary → filler strip →
-    /// rule-based cleanup), publishing to the UI and history like a real
+    /// formatter stage), publishing to the UI and history like a real
     /// dictation, and prints machine-greppable `SMOKE:` lines. Never records —
     /// the audio session is untouched. Requires bring-up to have reached
     /// `.idle` (mic permission granted + models installed).
