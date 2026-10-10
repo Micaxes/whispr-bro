@@ -5,8 +5,13 @@ import SwiftUI
 import WhisprBroCore
 
 /// Wires hotkey → audio → (VAD) → ASR → insertion (spec §3, §9). Task-008
-/// adds VAD auto-stop, double-tap hands-free lock, secure-input refusal, the
-/// HUD, and tap-health surfacing. No LLM yet (task-009).
+/// adds the double-tap hands-free lock, secure-input refusal, the HUD, and
+/// tap-health surfacing.
+///
+/// The press/release/latch rules themselves live in `DictationGesture` (Core,
+/// unit-tested); this type owns only the effects — mic, HUD, timers, ASR.
+/// Hands-free ends on the next press, on Cancel, or on the safety cap. It does
+/// NOT end on silence: a pause is not evidence that the speaker is done.
 @MainActor
 final class PipelineController: ObservableObject {
     enum State: Equatable {
@@ -38,14 +43,6 @@ final class PipelineController: ObservableObject {
         var allGranted: Bool { microphone && accessibility && inputMonitoring }
     }
 
-    /// Holds shorter than this are treated as taps (used to arm the double-tap
-    /// lock), not dictations — so they never transcribe. Decided by DURATION,
-    /// not sample count, so the gate cannot shift with how much audio the
-    /// buffer holds (today none before the press — the pre-roll is always
-    /// empty under mic-on-demand; see `PreRollBuffer.beginUtterance`).
-    private static let minHoldToTranscribe: TimeInterval = 0.22
-    /// Safety cap so a locked recording (or any stuck state) can't run forever.
-    private static let maxRecordingSeconds: TimeInterval = 90
 
     @Published private(set) var state: State = .needsPermissions
     @Published private(set) var lastTranscript: String = ""
@@ -109,11 +106,26 @@ final class PipelineController: ObservableObject {
         }
     }
     private var idleUnloadTimer: Timer?
-    /// True while the model is unloaded specifically to save idle memory, so the
-    /// next dictation knows to reload it (vs. an LLM that was never available).
-    private var llmUnloadedForIdle = false
 
-    @Published private(set) var rawMode = false
+    /// "Rules only — no AI rewrite" (`RulesOnlyMode`): every dictation takes
+    /// the deterministic path (dictionary → self-repair → filler strip →
+    /// layout → rule-based cleanup) and the model stays out of memory until
+    /// Command Mode needs it. Saved across launches, off by default. Read per
+    /// dictation (in prepareFormatter), so a flip can't race an in-flight
+    /// format into an inconsistent state.
+    @Published var rulesOnly = RulesOnlyMode().isOn {
+        didSet {
+            guard rulesOnly != oldValue else { return }
+            RulesOnlyMode().isOn = rulesOnly
+            applyRulesOnly()
+        }
+    }
+    /// "Fix self-corrections" — `[cleanup] self_repair` in config.toml, the
+    /// one place it lives: on, the self-repair rules run before the filler
+    /// strip; off, the pre-pass is the strip alone, as before the rules.
+    /// Mirrors the file (`applyConfig`); Settings flips it through
+    /// `setSelfRepair`, which writes that one line.
+    @Published private(set) var selfRepair = AppConfig.Cleanup().selfRepair
     /// Apply per-app formatting register (Slack casual / Mail formal / …).
     @Published var contextAwareStyle = true
     /// Persist each dictation to the local history. Off = dictate without a
@@ -138,16 +150,62 @@ final class PipelineController: ObservableObject {
     private var capturedBundleId: String?
     private var capturedAppName: String?
     @Published private(set) var llmAvailable = false
+    /// The last attempt to load an installed model failed — so the AI-rewrite
+    /// controls say "failed to load", not "not installed".
+    @Published private(set) var llmLoadFailed = false
+
+    /// Where the formatting model stands, as Settings and the menu bar say
+    /// it: not installed, not loaded yet, failed to load, or available.
+    var formattingModelStatus: FormattingModelStatus {
+        FormattingModelStatus(installed: llmModel.isInstalled, available: llmAvailable, loadFailed: llmLoadFailed)
+    }
 
     private var permissionPollTimer: Timer?
-    private var vadTimer: Timer?
     private var maxRecordingTimer: Timer?
     private var isBringingUp = false
     private var pipelineRunning = false
     private var vadAvailable = false
-    private var isLocked = false
+    /// True while a hands-free session is latched. Published so the menu bar
+    /// can say so — the HUD is not guaranteed to be on screen, and a latched
+    /// mic that looks like a hold is how a session gets forgotten.
+    @Published private(set) var isLocked = false
     private var recordingStartUptime: TimeInterval = 0
+    /// Label of the key bound to `dictate` ("Right ⌥"), shown in the hands-free
+    /// HUD and the menu hint so the way out is always on screen. `nil` when he
+    /// has deleted the binding — then there IS no key to name, and the UI says
+    /// Esc instead of naming one that does nothing. Refreshed on every rebind.
+    @Published private(set) var dictateKeyLabel: String? = PipelineController.keyLabel(.dictate, in: .load())
+    /// Same, for the Cancel key — the hands-free hint falls back to it.
+    @Published private(set) var cancelKeyLabel: String? = PipelineController.keyLabel(.cancel, in: .load())
+
+    /// Whether a hands-free session is latched right now (menu bar + HUD copy).
+    var isHandsFree: Bool { state == .recording && isLocked }
+
+    /// A dictation is in flight: mic open, transcribing, or inserting.
+    var isDictating: Bool {
+        switch state {
+        case .recording, .transcribing, .inserting: true
+        default: false
+        }
+    }
+
+    /// Called each time a dictation has landed (inserted, or copied to the
+    /// clipboard) and the pipeline is idle again.
+    var onDictationFinished: (() -> Void)?
+
+    /// How to end a latched session, in his words. Never names a key that
+    /// isn't bound — including the Cancel fallback. The wording lives in Core
+    /// so the HUD and the menu bar can't drift: both print it verbatim.
+    var handsFreeExitHint: String {
+        DictationGesture.exitHint(dictateKeyLabel: dictateKeyLabel, cancelKeyLabel: cancelKeyLabel)
+    }
     private var errorGeneration = 0
+
+    /// Where a finished dictation lands. A capped hands-free session goes to
+    /// the clipboard instead: five minutes on, the frontmost app is not
+    /// necessarily the one he was dictating into, and an unattended ⌘V of five
+    /// minutes of speech is the one outcome worse than making him paste it.
+    enum Delivery { case insert, clipboard }
 
     /// Whether the current recording is a normal dictation or a Command-Mode
     /// voice edit (task: hotkeys). Set at key-down, read at finish.
@@ -177,29 +235,24 @@ final class PipelineController: ObservableObject {
         formatter = TextFormatter(engine: engine)
     }
 
-    // MARK: - LLM lifecycle (preset switch + idle unload)
+    // MARK: - LLM lifecycle (preset switch + idle unload + rules-only)
     //
-    // Every engine load/unload/swap runs through ONE serial chain (`llmChain`)
-    // so they can never interleave. Without it, two rapid preset switches — or
-    // a switch during the ~1–2s startup load — could reassign `engine` while a
-    // load was in flight and orphan a fully-loaded engine whose ≈1GB C/Metal
-    // resources would leak. Serializing also removes the idle-unload↔dictation
-    // race: the dictation's reload is ordered after any pending idle unload.
+    // Every engine load/unload/swap runs through ONE serial chain
+    // (`ModelResidency`) so they can never interleave. Without it, two rapid
+    // preset switches — or a switch during the ~1–2s startup load — could
+    // reassign `engine` while a load was in flight and orphan a fully-loaded
+    // engine whose ≈1GB C/Metal resources would leak. Serializing also removes
+    // the idle-unload↔dictation race (the dictation's reload is ordered after
+    // any pending idle unload) and the rules-only one (turned back on during
+    // the background load, the unload queued behind it frees what it loaded).
 
-    /// Serial executor for LLM engine lifecycle ops; each awaits the previous.
-    private var llmChain: Task<Void, Never> = Task {}
-    /// Set once at teardown so no lifecycle op reloads the engine after
-    /// shutdown() has freed it (which would exit with a live Metal model and
-    /// trip the ggml-metal teardown assert).
-    private var llmShuttingDown = false
-
-    @discardableResult
-    private func llmSerial(_ op: @escaping @MainActor () async -> Void) -> Task<Void, Never> {
-        let prev = llmChain
-        let t = Task { @MainActor in await prev.value; await op() }
-        llmChain = t
-        return t
-    }
+    /// The chain, whether an installed model is out of memory
+    /// (`isUnloaded`), and the teardown latch (`isShuttingDown`: no op may
+    /// reload the engine after shutdown() freed it, which would exit with a
+    /// live Metal model and trip the ggml-metal teardown assert). The
+    /// rules-only and on-demand ops live there, pinned by test
+    /// (`ModelResidencyTests`); this controller is their host.
+    private lazy var residency = ModelResidency(host: self)
 
     /// Switch the formatting model. Not-installed presets are ignored (the UI
     /// disables them; this is the backstop). The choice is persisted only after
@@ -212,14 +265,14 @@ final class PipelineController: ObservableObject {
             return
         }
         llmModelKey = key   // drives the picker + coalescing; persisted on success
-        llmSerial { await self.reloadLLM(spec: spec) }
+        residency.serial { await self.reloadLLM(spec: spec) }
     }
 
     /// Rebuild the engine for `spec`. Serialized; coalesces — if a newer
     /// selection superseded this one while it waited, it skips without touching
     /// the (now-correct) engine.
     private func reloadLLM(spec: LlmModelSpec) async {
-        guard !llmShuttingDown else { return }
+        guard !residency.isShuttingDown else { return }
         guard spec.key == llmModelKey else { return }   // superseded by a later selectLLM
         idleUnloadTimer?.invalidate(); idleUnloadTimer = nil
         await engine.unload()   // free the outgoing engine's GPU/C resources first
@@ -230,40 +283,34 @@ final class PipelineController: ObservableObject {
                 systemPrompt: PromptBuilder.systemPrompt(for: dictationLanguage)))
         engine = newEngine
         formatter = TextFormatter(engine: newEngine)
-        llmUnloadedForIdle = false
+        residency.isUnloaded = false
         do {
             try await formatter.load()
             llmAvailable = true
+            llmLoadFailed = false
             UserDefaults.standard.set(spec.key, forKey: "llmModelKey")   // persist only good keys
             log.info("loaded LLM '\(spec.key)'")
+            // Loaded to prove the file is good before it is saved as his
+            // choice; in rules-only nothing uses it, so it goes again.
+            if rulesOnly {
+                residency.isUnloaded = true
+                await newEngine.unload()
+                log.info("rules only: unloaded '\(spec.key)' until something needs it")
+            }
         } catch {
             llmAvailable = false
+            llmLoadFailed = true
             log.warning("LLM '\(spec.key)' load failed, using raw cleanup: \(error.localizedDescription)")
         }
         armIdleUnloadTimer()
     }
 
-    /// Reload the model if it was unloaded to save idle memory. Called on the
-    /// dictation path just before formatting; serialized after any pending idle
-    /// unload and awaited so formatting sees a loaded engine. No-op otherwise.
+    /// Load the model if it is not in memory (unloaded for idle, or left
+    /// unloaded by rules-only). Called on the dictation path just before
+    /// formatting and by Command Mode; serialized after any pending unload
+    /// and awaited so formatting sees a loaded engine. No-op otherwise.
     private func ensureLLMLoaded() async {
-        await llmSerial {
-            guard !self.llmShuttingDown, self.llmUnloadedForIdle, self.llmModel.isInstalled else { return }
-            do {
-                try await self.formatter.load()
-                self.llmUnloadedForIdle = false
-                self.llmAvailable = true
-                // Restart the idle countdown: this reload may be the dictation's
-                // last action (e.g. it ends on the secure-field refuse path,
-                // which doesn't re-arm), and the one-shot timer that unloaded us
-                // is already spent — without this the model would stay resident.
-                self.armIdleUnloadTimer()
-                self.log.info("reloaded LLM after idle unload")
-            } catch {
-                self.llmAvailable = false
-                self.log.warning("idle reload failed, using raw cleanup: \(error.localizedDescription)")
-            }
-        }.value
+        await residency.ensureLoaded()
     }
 
     private func armIdleUnloadTimer() {
@@ -280,18 +327,33 @@ final class PipelineController: ObservableObject {
     }
 
     private func unloadLLMForIdle() {
-        llmSerial {
-            guard !self.llmShuttingDown, self.idleUnloadEnabled, self.llmAvailable, !self.llmUnloadedForIdle else { return }
+        residency.serial {
+            guard !self.residency.isShuttingDown, self.idleUnloadEnabled, self.llmAvailable,
+                  !self.residency.isUnloaded else { return }
             // Fired while a dictation was running: don't unload mid-decode — re-
             // arm to retry once idle. (Terminal dictation paths that don't re-arm
             // — error/refuse/empty — rely on this.)
             guard self.state == .idle else { self.armIdleUnloadTimer(); return }
             // Set BEFORE the await so a dictation whose reload op is serialized
             // after this one knows to reload.
-            self.llmUnloadedForIdle = true
+            self.residency.isUnloaded = true
             await self.engine.unload()
             self.log.info("unloaded LLM after \(self.idleUnloadMinutes)min idle (frees ~1GB; reloads on next dictation)")
         }
+    }
+
+    /// The model's side of flipping rules-only (`RulesOnlyMode.transition`,
+    /// queued in order by `ModelResidency`): on frees it — always queued,
+    /// behind a background load still in flight — and off loads it in the
+    /// background so the next dictation does not wait ~1–2 s for it.
+    private func applyRulesOnly() {
+        residency.rulesOnlyChanged(to: rulesOnly)
+    }
+
+    /// Free the model for rules-only — but never under a dictation or a
+    /// command that is using it: then retry once it has landed.
+    private func unloadLLMForRulesOnly() {
+        residency.unloadForRulesOnly()
     }
 
     func startup() {
@@ -300,8 +362,15 @@ final class PipelineController: ObservableObject {
         // Open the history DB off-main so the first History-window access
         // doesn't run the SQLite open + migration on the main thread.
         Task.detached { HistoryStore.prewarm() }
+        // The self-repair rules read two on-device language models (~70 ms
+        // to load, once); load them now, off-main, not in the first dictation.
+        if dictationLanguage == .english {
+            Task.detached(priority: .utility) { SelfRepair.prewarm() }
+        }
         hud.levelProvider = { [weak self] in self?.audio.lastRMS ?? 0 }
-        hotkey.onAction = { [weak self] action, phase in self?.handleHotkey(action, phase) }
+        hotkey.onAction = { [weak self] action, phase, at in
+            self?.handleHotkey(action, phase, at: at)
+        }
         hotkey.onHealthChange = { [weak self] healthy in self?.hotkeyHealthChanged(healthy) }
         Task { await bringUp() }
     }
@@ -336,8 +405,8 @@ final class PipelineController: ObservableObject {
         do {
             state = .loadingModels
             try await asr.load()
-            // VAD is optional: without it, auto-stop and trim are disabled but
-            // hold-to-talk still works.
+            // VAD is optional: without it silence-trim is disabled (nothing
+            // else depends on it) and both dictation modes still work.
             do {
                 try await vad.load()
                 vadAvailable = true
@@ -347,15 +416,23 @@ final class PipelineController: ObservableObject {
             }
             // LLM is optional too: without it, dictation falls back to
             // rule-based cleanup (raw mode) — never blocks bring-up.
-            if llmModel.isInstalled {
+            if RulesOnlyMode.loadsModelAtLaunch(rulesOnly: rulesOnly, modelInstalled: llmModel.isInstalled) {
                 do {
                     try await formatter.load()
                     llmAvailable = true
+                    llmLoadFailed = false
                     armIdleUnloadTimer()
                 } catch {
                     llmAvailable = false
+                    llmLoadFailed = true
                     log.warning("LLM unavailable, using raw cleanup: \(error.localizedDescription)")
                 }
+            } else if llmModel.isInstalled {
+                // Rules only: the model stays on disk until something needs
+                // it (Command Mode, or a dictation once AI rewrite is back on).
+                llmAvailable = true
+                if !(await formatter.isEngineLoaded) { residency.isUnloaded = true }
+                log.info("rules only: formatting model not loaded at launch")
             } else {
                 llmAvailable = false
                 log.info("LLM model not installed; raw cleanup only")
@@ -455,11 +532,31 @@ final class PipelineController: ObservableObject {
         // Auto-Clean: rebuild the filler pre-pass from config. The aggressiveness
         // LEVEL is the menu control (cleanupLevel), not a config key.
         cleanupCfg = config.cleanup
+        selfRepair = config.cleanup.selfRepair
         fillerStripper = FillerStripper(
             core: FillerStripper.coreFillers(for: dictationLanguage),
             extra: config.cleanup.extraFillers,
             disabled: config.cleanup.disabledFillers,
             collapseStutters: config.cleanup.collapseStutters)
+    }
+
+    /// Turn the self-repair rules on or off from Settings: writes
+    /// `[cleanup] self_repair` into config.toml — that line only, his
+    /// comments and the rest of the file untouched — then reloads the file,
+    /// so what runs is what the file says. Takes effect on the next
+    /// dictation. A write that fails leaves the file and the switch as they
+    /// were.
+    func setSelfRepair(_ on: Bool) {
+        guard on != cleanupCfg.selfRepair else { return }
+        do {
+            try ConfigStore.setCleanupSwitch("self_repair", to: on)
+            log.info("self-repair rules \(on ? "on" : "off", privacy: .public) (config.toml [cleanup] self_repair)")
+        } catch {
+            log.error("could not write [cleanup] self_repair: \(String(describing: error), privacy: .public)")
+        }
+        reloadConfig()
+        // Unchanged on a failed write: repaint the switch back to the file.
+        objectWillChange.send()
     }
 
     /// Whether the current register disables Auto-Clean entirely (verbatim).
@@ -511,22 +608,14 @@ final class PipelineController: ObservableObject {
 
     /// Free GPU-backed models before the process exits (spec §12 clean quit).
     func shutdown() async {
-        // Latch teardown first: every lifecycle op guards on this, so any op
-        // still queued — or appended while we drain below — becomes a no-op and
-        // can't re-load the engine after we free it (which would exit with a
-        // live Metal model and trip the ggml-metal teardown assert).
-        llmShuttingDown = true
         idleUnloadTimer?.invalidate(); idleUnloadTimer = nil
-        await llmChain.value   // let any in-flight (already-past-guard) op finish
+        // Latch teardown, then let the op in flight finish: every lifecycle
+        // op guards on the latch, so any op still queued — or appended while
+        // we drain — becomes a no-op and can't re-load the engine after we
+        // free it (which would exit with a live Metal model and trip the
+        // ggml-metal teardown assert).
+        await residency.shutDown()
         await formatter.shutdown()
-    }
-
-    /// Toggle the LLM auto-edit stage. In raw mode only rule-based cleanup
-    /// runs (Parakeet already punctuates), which is instant. The flag is read
-    /// per-dictation (passed into format), so a toggle can't race an in-flight
-    /// format into an inconsistent state.
-    func toggleRawMode() {
-        rawMode.toggle()
     }
 
     /// Timers on the `.common` run-loop mode so they keep firing while the
@@ -568,12 +657,17 @@ final class PipelineController: ObservableObject {
     // MARK: - Hotkey gestures
 
     /// Central dispatch for all configurable hotkey actions (task: hotkeys).
-    private func handleHotkey(_ action: HotkeyAction, _ phase: HotkeyPhase) {
+    ///
+    /// `eventTime` is when the KEY happened, not when this runs. Everything
+    /// that times a gesture uses it: delivery is an async hop to the main
+    /// thread, and this thread stalls for real milliseconds opening the mic, so
+    /// a hold timed by handler clocks measures the stall, not the finger.
+    private func handleHotkey(_ action: HotkeyAction, _ phase: HotkeyPhase, at eventTime: TimeInterval) {
         switch (action, phase) {
-        case (.dictate, .began): hotkeyPressed(mode: .dictation)
-        case (.dictate, .ended): hotkeyReleased()
-        case (.commandMode, .began): hotkeyPressed(mode: .command)
-        case (.commandMode, .ended): hotkeyReleased()
+        case (.dictate, .began): hotkeyPressed(mode: .dictation, at: eventTime)
+        case (.dictate, .ended): hotkeyReleased(at: eventTime)
+        case (.commandMode, .began): hotkeyPressed(mode: .command, at: eventTime)
+        case (.commandMode, .ended): hotkeyReleased(at: eventTime)
         case (.handsFree, .fired): hotkeyDoubleTapped()
         case (.cancel, .fired): cancelActive()
         case (.pasteLast, .fired): pasteLastTranscript()
@@ -582,15 +676,29 @@ final class PipelineController: ObservableObject {
         }
     }
 
-    private func hotkeyPressed(mode: DictationMode = .dictation) {
-        // A press while locked-recording is the hands-free STOP.
-        if state == .recording, isLocked {
-            finishRecording(trim: true)
-            return
+    /// The pipeline state as the gesture layer sees it.
+    private var gesturePhase: DictationGesture.Phase {
+        switch state {
+        case .idle: .idle
+        case .recording: .recording
+        case .transcribing, .inserting: .busy
+        default: .unavailable
         }
-        guard state == .idle else {
-            if state == .transcribing || state == .inserting { NSSound.beep() }
+    }
+
+    private func hotkeyPressed(mode: DictationMode = .dictation, at eventTime: TimeInterval) {
+        switch DictationGesture.press(
+            phase: gesturePhase, locked: isLocked, isDictateKey: mode == .dictation) {
+        case .start: break
+        case .finish(let trim):
+            // The hands-free STOP. This press was consumed as a deliberate
+            // action, so nothing about it may arm a double-tap — otherwise a
+            // press moments later re-latches the mic behind his back.
+            hotkey.consumePressForDoubleTap()
+            finishRecording(trim: trim)
             return
+        case .refuseBusy: NSSound.beep(); return
+        default: return
         }
         // Cheap, non-blocking refusal only (system secure input). The
         // authoritative AX field check runs off the hot path before insertion.
@@ -610,18 +718,28 @@ final class PipelineController: ObservableObject {
         capturedSelection = nil
 
         isLocked = false
-        recordingStartUptime = ProcessInfo.processInfo.systemUptime
+        // The KEY's clock, not this handler's — see `handleHotkey`.
+        recordingStartUptime = eventTime
         // Open the mic NOW — this lights the macOS mic indicator (on-demand, so
         // it's lit only while dictating). Fast because AudioEngine was prepared
         // at bring-up; the ~100ms until the built-in mic is live is hidden by
         // reaction time before the first word.
+        let micOpenSeconds: Double
         do {
-            try audio.startCapture()
+            micOpenSeconds = try measuredSync { try audio.startCapture() }.1
         } catch {
             log.error("mic startCapture failed: \(error.localizedDescription)")
             refuse("Microphone unavailable")
             return
         }
+        // How late this handler ran, and how long the mic took to open. Both
+        // are main-thread stalls that used to be charged to the hold (they no
+        // longer are), and both are what a "why didn't my double-tap take"
+        // report needs. Timings only.
+        let lagSeconds = ProcessInfo.processInfo.systemUptime - eventTime - micOpenSeconds
+        log.info("""
+            press: dispatch lag \(Int(max(0, lagSeconds) * 1000), privacy: .public)ms,             mic open \(Int(micOpenSeconds * 1000), privacy: .public)ms
+            """)
         state = .recording
         // beginUtterance() right after startCapture(): under mic-on-demand the
         // pre-roll is EMPTY (capture just started, nothing buffered — see
@@ -636,33 +754,50 @@ final class PipelineController: ObservableObject {
         if mode == .command { capturedSelection = AXFocus.selectedText() }
     }
 
-    private func hotkeyReleased() {
-        guard state == .recording, !isLocked else { return }
-        // Sub-threshold hold = a tap (e.g. arming a double-tap): discard, never
-        // transcribe. Decided synchronously so the next press records cleanly.
-        let held = ProcessInfo.processInfo.systemUptime - recordingStartUptime
-        guard held >= Self.minHoldToTranscribe else {
-            cancelRecording()
-            return
+    private func hotkeyReleased(at eventTime: TimeInterval) {
+        // Decided synchronously so the next press records cleanly. A
+        // sub-threshold hold is the double-tap's arming tap: discard its audio.
+        //
+        // Key event to key event. Timed against this handler's own clock
+        // instead, the hold picked up however long the press handler sat in
+        // `startCapture` — on a USB mic, enough to push a 150ms tap past the
+        // transcribe threshold. The tracker then armed a window the pipeline
+        // had already spent on a doomed transcription, and the second press hit
+        // a busy pipeline and beeped. That was the latch that only took when the
+        // key was hammered.
+        let held = eventTime - recordingStartUptime
+        switch DictationGesture.release(phase: gesturePhase, locked: isLocked, heldFor: held) {
+        case .finish(let trim): finishRecording(trim: trim)
+        case .discard: cancelRecording()
+        default: break
         }
-        finishRecording(trim: false)
     }
 
     private func hotkeyDoubleTapped() {
-        // The second tap's press already started recording; latch hands-free —
-        // but only if VAD can actually auto-stop it. Without VAD, stay in hold
-        // mode (release stops) rather than implying an auto-stop that never comes.
-        guard state == .recording, vadAvailable else { return }
+        // The second tap's press already started recording; this latches it.
+        // From here the mic stays open until he presses the key again (or hits
+        // Cancel, or the hands-free cap expires) — silence never ends it, so
+        // the latch needs no VAD.
+        guard DictationGesture.doubleTap(phase: gesturePhase, locked: isLocked) == .latchHandsFree
+        else { return }
         isLocked = true
-        hud.update(.locked)
-        Task {
-            await vad.beginStream()
-            startVadAutoStop()
-        }
+        hud.update(.locked(hint: handsFreeExitHint))
+        startMaxRecordingCap()   // re-arm on the (much longer) hands-free cap
     }
 
     private func hotkeyHealthChanged(_ healthy: Bool) {
         hotkeyDead = !healthy
+        // A dead tap means the stop press can no longer reach us. A HOLD is
+        // already released by HotkeyManager's stuck-key reconcile; a latched
+        // hands-free session has no held key to release, so land it here rather
+        // than leave the mic open until the cap.
+        if !healthy, state == .recording, isLocked {
+            log.warning("hotkey tap died mid-hands-free — finishing the session")
+            // Same staleness as the cap: he may have walked away minutes ago
+            // and the frontmost app is not necessarily his. Clipboard.
+            finishRecording(trim: true, delivery: .clipboard)
+            return
+        }
         // Only surface via the HUD when idle, so a mid-recording HUD is never
         // clobbered; the menu-bar flag covers the always-visible case.
         if !healthy, state == .idle {
@@ -677,19 +812,37 @@ final class PipelineController: ObservableObject {
         NSSound.beep()
     }
 
+    /// One transient line on the HUD, for something that is not part of a
+    /// dictation. It waits for a quiet moment: never while a dictation is in
+    /// flight, never over a toast that is still on screen. Returns whether it
+    /// was shown, so the caller can try again later instead of counting it.
+    @discardableResult
+    func announce(_ message: String, for seconds: TimeInterval = 6) -> Bool {
+        guard !isDictating, !hud.isShowing else { return false }
+        hud.show(.warning(message))
+        hud.hide(after: seconds)
+        return true
+    }
+
     // MARK: - Recording lifecycle
 
+    /// (Re)arm the safety cap for the CURRENT mode — the hold ceiling on a
+    /// press, the far longer hands-free ceiling when the latch engages.
     private func startMaxRecordingCap() {
         maxRecordingTimer?.invalidate()
-        maxRecordingTimer = commonTimer(interval: Self.maxRecordingSeconds) { [weak self] in
-            guard let self, self.state == .recording else { return }
-            self.log.warning("max recording duration hit — stopping")
-            self.finishRecording(trim: self.isLocked)
+        let limit = isLocked ? DictationGesture.maxHandsFreeSeconds : DictationGesture.maxHoldSeconds
+        maxRecordingTimer = commonTimer(interval: limit) { [weak self] in
+            guard let self else { return }
+            guard case .finish(let trim) = DictationGesture.durationCap(
+                phase: self.gesturePhase, locked: self.isLocked) else { return }
+            self.log.warning("max recording duration (\(Int(limit))s) hit — stopping")
+            // A capped HOLD is a lost key-up seconds ago — he is still there,
+            // so it inserts. A capped LATCH may be five minutes stale.
+            self.finishRecording(trim: trim, delivery: self.isLocked ? .clipboard : .insert)
         }
     }
 
     private func stopTimers() {
-        vadTimer?.invalidate(); vadTimer = nil
         maxRecordingTimer?.invalidate(); maxRecordingTimer = nil
     }
 
@@ -703,26 +856,9 @@ final class PipelineController: ObservableObject {
         hud.hide()
     }
 
-    // MARK: - VAD auto-stop (locked mode)
-
-    private func startVadAutoStop() {
-        vadTimer?.invalidate()
-        vadTimer = commonTimer(interval: 0.15) { [weak self] in
-            guard let self else { return }
-            let samples = self.audio.drainNewSamples()
-            guard !samples.isEmpty else { return }
-            Task { @MainActor in
-                let ended = await self.vad.feed(samples)
-                if ended, self.state == .recording, self.isLocked {
-                    self.finishRecording(trim: true)
-                }
-            }
-        }
-    }
-
     // MARK: - Finish → transcribe → insert
 
-    private func finishRecording(trim: Bool) {
+    private func finishRecording(trim: Bool, delivery: Delivery = .insert) {
         stopTimers()
         let wasLocked = isLocked
         isLocked = false
@@ -745,14 +881,20 @@ final class PipelineController: ObservableObject {
         hud.update(.transcribing)
         if pendingMode == .command {
             let selection = capturedSelection
-            Task { await transcribeCommand(samples, selection: selection, timings: timings) }
+            Task {
+                await transcribeCommand(
+                    samples, selection: selection, delivery: delivery, timings: timings)
+            }
         } else {
-            Task { await transcribeAndInsert(samples, wasLocked: wasLocked, trim: trim, timings: timings) }
+            Task {
+                await transcribeAndInsert(
+                    samples, wasLocked: wasLocked, trim: trim, delivery: delivery, timings: timings)
+            }
         }
     }
 
     private func transcribeAndInsert(
-        _ samples: [Float], wasLocked: Bool, trim: Bool, timings: StageTimings
+        _ samples: [Float], wasLocked: Bool, trim: Bool, delivery: Delivery, timings: StageTimings
     ) async {
         do {
             // Snapshot the dictionary/cleanup so a menu reload mid-dictation
@@ -760,8 +902,10 @@ final class PipelineController: ObservableObject {
             // pre-pass disagree.
             let dict = dictionary
             let stripper = fillerStripper
+            let selfRepair = cleanupCfg.selfRepair
             let level = cleanupLevel
-            let verbatimRegister = isVerbatimRegister(capturedCategory)
+            let register = capturedCategory
+            let verbatimRegister = isVerbatimRegister(register)
             // Formatter-stage inputs, read in prepareFormatter — after the
             // strip, right before the measured format — the same instant the
             // pre-extraction inline code read them.
@@ -777,9 +921,11 @@ final class PipelineController: ObservableObject {
                 trim: trim ? { await self.vad.trim($0) } : nil,
                 dictionary: dict, stripper: stripper,
                 level: level, verbatimRegister: verbatimRegister,
+                register: register, language: dictationLanguage,
+                selfRepair: selfRepair,
                 timings: timings,
                 prepareFormatter: {
-                    raw = self.rawMode
+                    raw = self.rulesOnly
                     // Self-correction: level=standard on a non-verbatim register.
                     // The LLM path handles it; format() also uses this to keep a
                     // short correction off the fast path (§5c).
@@ -789,18 +935,21 @@ final class PipelineController: ObservableObject {
                     // Reload the model first if it was unloaded to save idle
                     // memory (~1–2s, only after a long idle gap, only on the LLM
                     // path) — outside the measured format stage, so formatMs
-                    // never absorbs a reload.
-                    if !raw { await self.ensureLLMLoaded() }
+                    // never absorbs a reload. In rules-only it is never loaded.
+                    if RulesOnlyMode.dictationNeedsModel(rulesOnly: raw, level: level) {
+                        await self.ensureLLMLoaded()
+                    }
                 },
-                format: { cleaned in
+                formatInput: { input in
                     // Stage 2: LLM auto-edit (or rule-based fast path / raw
                     // fallback). Formatter.format never throws — a dictation
-                    // always lands.
+                    // always lands. The 150-word ceiling counts the dictation
+                    // before the self-repair rules (`ceilingWords`).
                     await self.formatter.format(
-                        cleaned, rawMode: raw, styleDirective: style,
+                        input.text, rawMode: raw, styleDirective: style,
                         preserveCasingFor: dict.lowercasedTargets,
                         resolveCorrections: resolveCorr,
-                        language: self.dictationLanguage)
+                        language: self.dictationLanguage, ceilingWords: input.ceilingWords)
                 })
             else {
                 state = .idle
@@ -810,19 +959,28 @@ final class PipelineController: ObservableObject {
             var timings = outcome.timings
             let text = outcome.text
 
+            // He hit Cancel while we were transcribing/formatting. Checked
+            // BEFORE every delivery: a cancel discards the dictation, so it
+            // must not reach the cursor, the clipboard, or history.
+            if pendingCancel {
+                pendingCancel = false
+                state = .idle
+                hud.hide()
+                return
+            }
+            // A capped hands-free session never types itself into whatever app
+            // is frontmost now — it lands on the clipboard, in history, and in
+            // "paste last", and the HUD says where it went.
+            if delivery == .clipboard {
+                deliverToClipboard(outcome, timings: timings)
+                return
+            }
             // Authoritative secure check (system + focused AX field). Focus may
             // have moved to a password field while we transcribed. This is off
             // the capture hot path, so its AX IPC is acceptable here.
             if SecureInput.shouldRefuse {
                 refuse("Won't insert into a secure field")
                 state = .idle
-                return
-            }
-            // The user hit Cancel while we were transcribing/formatting — don't paste.
-            if pendingCancel {
-                pendingCancel = false
-                state = .idle
-                hud.hide()
                 return
             }
 
@@ -848,6 +1006,7 @@ final class PipelineController: ObservableObject {
                 self.hud.hide()
                 // Restart the idle-unload countdown now the dictation is done.
                 self.armIdleUnloadTimer()
+                self.onDictationFinished?()
                 // Persist to history OFF the insertion path — a detached Task
                 // so the DB write never blocks the dictation completing. Skipped
                 // entirely when the user disabled history.
@@ -874,12 +1033,60 @@ final class PipelineController: ObservableObject {
         }
     }
 
+    /// Land a dictation on the clipboard instead of at the cursor (the capped
+    /// hands-free path). Same bookkeeping as an insertion — `lastTranscript`,
+    /// the raw form, history — minus the keystrokes.
+    private func deliverToClipboard(_ outcome: DictationPipeline.Outcome, timings: StageTimings) {
+        deliverToClipboard(
+            outcome.text, verbatim: outcome.verbatimText,
+            durationMs: Self.ms(Double(outcome.transcribedSampleCount) / AudioEngine.targetSampleRate),
+            timings: timings)
+    }
+
+    private func deliverToClipboard(
+        _ text: String, verbatim: String, durationMs: Int?, timings: StageTimings
+    ) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        lastTranscript = text
+        lastRawTranscript = verbatim
+        lastTimings = timings.description
+        log.info("capped hands-free → clipboard: \(text, privacy: .private) [\(timings.description)]")
+        state = .idle
+        hud.show(.warning("Hands-free capped — copied, ⌘V to paste"))
+        hud.hide(after: 4)
+        armIdleUnloadTimer()
+        onDictationFinished?()
+        saveHistory(text: text, verbatim: verbatim, durationMs: durationMs, timings: timings)
+    }
+
+    /// Persist a finished dictation OFF the insertion path — a detached Task so
+    /// the DB write never blocks the dictation completing. Skipped entirely
+    /// when he turned history off.
+    private func saveHistory(
+        text: String, verbatim: String, durationMs: Int?, timings: StageTimings
+    ) {
+        guard historyEnabled else { return }
+        let record = HistoryRecord(
+            createdAt: Date(), appBundleId: capturedBundleId, appName: capturedAppName,
+            rawText: verbatim, formattedText: text,
+            audioMs: Self.ms(timings.audioFinalizeSeconds), asrMs: Self.ms(timings.asrSeconds),
+            formatMs: Self.ms(timings.formatSeconds), insertMs: Self.ms(timings.insertSeconds),
+            totalMs: Self.ms(timings.totalSeconds),
+            durationMs: durationMs, language: dictationLanguage.code)
+        Task.detached { await HistoryStore.shared?.save(record) }
+    }
+
     // MARK: - Command Mode + quick actions (task: hotkeys)
 
     /// Transcribe the spoken instruction and voice-edit the captured selection
     /// via the LLM, then paste the result (which replaces the selection). With
-    /// no selection, falls back to a normal dictation of the spoken words.
-    private func transcribeCommand(_ samples: [Float], selection: String?, timings: StageTimings) async {
+    /// no selection, the spoken words are a dictation and take a dictation's
+    /// text path. `RulesOnlyMode.command` decides what each does with the
+    /// model.
+    private func transcribeCommand(
+        _ samples: [Float], selection: String?, delivery: Delivery, timings: StageTimings
+    ) async {
         var timings = timings
         do {
             let dict = dictionary
@@ -888,21 +1095,26 @@ final class PipelineController: ObservableObject {
             let instruction = dict.apply(result.text.trimmingCharacters(in: .whitespacesAndNewlines))
             guard !instruction.isEmpty else { state = .idle; hud.hide(); return }
 
-            guard llmAvailable else {
-                state = .idle
-                refuse("Command mode needs the formatting model")
-                return
-            }
-            await ensureLLMLoaded()
-
             let output: String
             let historyRaw: String
-            if let selection, !selection.isEmpty {
+            let plan = RulesOnlyMode.command(hasSelection: !(selection ?? "").isEmpty, rulesOnly: rulesOnly)
+            if plan != .dictation, let selection {
+                guard llmAvailable else {
+                    state = .idle
+                    refuse("Command mode needs the formatting model")
+                    return
+                }
+                // Loaded on demand (rules-only keeps it out of memory)…
+                await ensureLLMLoaded()
                 let (edited, fmtSeconds) = await measured {
                     await formatter.command(instruction: instruction, selection: selection,
                                             language: dictationLanguage)
                 }
                 timings.formatSeconds = fmtSeconds
+                // …and in rules-only freed again once this edit has landed
+                // (the unload waits for idle), so one command does not leave
+                // ~1 GB resident for the rest of the session.
+                if plan == .editThenUnload { unloadLLMForRulesOnly() }
                 guard let edited, !edited.isEmpty else {
                     state = .idle
                     refuse("Couldn't apply that edit")
@@ -911,17 +1123,50 @@ final class PipelineController: ObservableObject {
                 output = edited
                 historyRaw = selection
             } else {
-                // No selection: treat the spoken words as a normal dictation.
-                let (formatted, fmtSeconds) = await measured {
-                    await formatter.format(instruction, rawMode: rawMode, language: dictationLanguage)
-                }
+                // No selection: the spoken words are a dictation — the same
+                // text path (self-repair, filler strip, spoken layout, the
+                // formatter stage, finishing) at his level and register. The
+                // model is loaded only if a dictation would load it.
+                let stripper = fillerStripper
+                let selfRepair = cleanupCfg.selfRepair
+                let level = cleanupLevel
+                let register = capturedCategory
+                let verbatimRegister = isVerbatimRegister(register)
+                var raw = false
+                var resolveCorr = false
+                var style = ""
+                let (formatted, fmtSeconds) = await DictationPipeline.finish(
+                    instruction, dictionary: dict, stripper: stripper, level: level,
+                    verbatimRegister: verbatimRegister, register: register, language: dictationLanguage,
+                    selfRepair: selfRepair,
+                    prepareFormatter: {
+                        raw = self.rulesOnly
+                        resolveCorr = level == .standard && !verbatimRegister
+                        style = self.effectiveStyleDirective(dictionary: dict, resolveCorrections: resolveCorr)
+                        if RulesOnlyMode.dictationNeedsModel(rulesOnly: raw, level: level) {
+                            await self.ensureLLMLoaded()
+                        }
+                    },
+                    formatInput: { input in
+                        await self.formatter.format(
+                            input.text, rawMode: raw, styleDirective: style,
+                            preserveCasingFor: dict.lowercasedTargets,
+                            resolveCorrections: resolveCorr,
+                            language: self.dictationLanguage, ceilingWords: input.ceilingWords)
+                    })
                 timings.formatSeconds = fmtSeconds
                 output = formatted
                 historyRaw = instruction
             }
 
-            if SecureInput.shouldRefuse { refuse("Won't insert into a secure field"); state = .idle; return }
             if pendingCancel { pendingCancel = false; state = .idle; hud.hide(); return }
+            // A capped session doesn't paste over his selection either — five
+            // minutes on, that selection may not even exist any more.
+            if delivery == .clipboard {
+                deliverToClipboard(output, verbatim: historyRaw, durationMs: nil, timings: timings)
+                return
+            }
+            if SecureInput.shouldRefuse { refuse("Won't insert into a secure field"); state = .idle; return }
             insertCommandResult(output, historyRaw: historyRaw, timings: timings)
         } catch {
             state = .idle
@@ -951,6 +1196,7 @@ final class PipelineController: ObservableObject {
             self.state = .idle
             self.hud.hide()
             self.armIdleUnloadTimer()
+            self.onDictationFinished?()
             if self.historyEnabled {
                 let record = HistoryRecord(
                     createdAt: Date(), appBundleId: bundleId, appName: appName,
@@ -971,6 +1217,9 @@ final class PipelineController: ObservableObject {
         switch state {
         case .recording:
             stopTimers()
+            // Same reasoning as the stop press: this key press was consumed as
+            // a deliberate action, so nothing about it arms a double-tap.
+            hotkey.consumePressForDoubleTap()
             isLocked = false
             _ = audio.endUtterance()
             audio.stopCapture()
@@ -991,9 +1240,11 @@ final class PipelineController: ObservableObject {
         inserter.insert(lastTranscript)
     }
 
-    /// Copy the last transcript to the clipboard.
+    /// Copy the last transcript to the clipboard. Idle-only, like `pasteLast`:
+    /// mid-dictation it would replace the live HUD with a toast and leave a
+    /// latched mic with nothing on screen.
     private func copyLastTranscript() {
-        guard !lastTranscript.isEmpty else { NSSound.beep(); return }
+        guard state == .idle, !lastTranscript.isEmpty else { NSSound.beep(); return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(lastTranscript, forType: .string)
         hud.show(.refused("Copied last transcript")); hud.hide(after: 1)
@@ -1002,5 +1253,51 @@ final class PipelineController: ObservableObject {
     /// Apply a rebound hotkey config live (Settings recorder).
     func reloadHotkeys(_ config: HotkeyConfig) {
         hotkey.reload(config)
+        dictateKeyLabel = Self.keyLabel(.dictate, in: config)
+        cancelKeyLabel = Self.keyLabel(.cancel, in: config)
+        // A session latched right now is showing the OLD key — repaint it, so
+        // the way out on screen is the key that actually ends it.
+        if isHandsFree { hud.update(.locked(hint: handsFreeExitHint)) }
+    }
+
+    /// An action's key label, or nil when nothing is bound to it.
+    static func keyLabel(_ action: HotkeyAction, in config: HotkeyConfig) -> String? {
+        config.bindings(for: action).first?.displayString
+    }
+}
+
+// MARK: - The model's host
+
+/// What `ModelResidency` reads and calls: the state each op checks when it
+/// runs (not when it was queued), the engine, and what a load or an unload
+/// changes here.
+extension PipelineController: ModelResidencyHost {
+    var modelIsIdle: Bool { state == .idle }
+    var modelIsInstalled: Bool { llmModel.isInstalled }
+    var modelIsAvailable: Bool { llmAvailable }
+
+    func loadModel() async throws { try await formatter.load() }
+    func unloadModel() async { await engine.unload() }
+
+    func modelDidLoad(failure: Error?) {
+        if let failure {
+            llmAvailable = false
+            llmLoadFailed = true
+            log.warning("model load failed, using raw cleanup: \(failure.localizedDescription)")
+            return
+        }
+        llmAvailable = true
+        llmLoadFailed = false
+        // Restart the idle countdown: this reload may be the dictation's
+        // last action (e.g. it ends on the secure-field refuse path, which
+        // doesn't re-arm), and the one-shot timer that unloaded us is
+        // already spent — without this the model would stay resident.
+        armIdleUnloadTimer()
+        log.info("loaded LLM on demand")
+    }
+
+    func modelDidUnloadForRulesOnly() {
+        idleUnloadTimer?.invalidate(); idleUnloadTimer = nil
+        log.info("rules only: unloaded the formatting model (frees ~1GB; Command Mode loads it on demand)")
     }
 }

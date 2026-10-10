@@ -25,6 +25,7 @@ flowchart TB
         VAD["VadGate (Silero VAD via FluidAudio CoreML)"]
         ASR["Transcriber actor (FluidAudio Parakeet, ANE-pinned)"]
         DICT["DictionaryEngine (deterministic substitutions)"]
+        REP["SelfRepair + FillerStripper (deterministic, deletion-only)"]
         FMT["Formatter actor (in-process llama.cpp, Metal, KV cache, supervised)"]
         CTX["ContextService (AXUIElementCreateSystemWide + NSWorkspace)"]
         INS["TextInserter + PasteboardGuard (AX direct-set, Cmd+V fallback)"]
@@ -50,7 +51,8 @@ flowchart TB
     AUD -->|"frames"| VAD
     VAD -->|"trimmed utterance buffer"| ASR
     ASR -->|"raw transcript"| DICT
-    DICT -->|"vocab-corrected text"| FMT
+    DICT -->|"vocab-corrected text"| REP
+    REP -->|"repairs and fillers removed"| FMT
     CTX -->|"bundle ID + style rule + optional nearby text"| FMT
     AX -->|"focused element, secure-field check"| CTX
     FMT -->|"formatted text (or raw-mode bypass)"| INS
@@ -84,13 +86,14 @@ sequenceDiagram
     Note over CTX: refuse if kAXSecureTextFieldSubrole or IsSecureEventInputEnabled()
     HK->>AUD: mark utterance start, splice 500ms pre-roll ring buffer
     AUD->>AUD: accumulate 16kHz mono; VAD trims silence; HUD shows waveform
-    U->>HK: release key (keyUp) — or VAD auto-stop in locked mode
+    U->>HK: release key (keyUp) — or, in hands-free, press the key again
     Note over AUD: finalize buffer, ~5ms (in-memory, no I/O)
     AUD->>ASR: utterance buffer
     ASR->>ASR: Parakeet-tdt-0.6b-v2 on ANE
     Note over ASR: 190–250ms (verified 0.19s M4 benchmark)
     ASR->>FMT: raw transcript (after DictionaryEngine pass, under 1ms)
-    alt raw mode OR under 6 words
+    Note over FMT: self-repair rules, then filler strip (deterministic, deletion-only, under 1ms typical)
+    alt rules-only mode OR under 6 words OR over 150 (counted before the rules)
         FMT->>INS: skip LLM — rule-based sentence-casing (0ms LLM)
     else formatting pass
         FMT->>FMT: KV-cached prefix + prompt-lookup decode, max_tokens = 2x input
@@ -110,11 +113,13 @@ sequenceDiagram
 |---|---|---|---|
 | App shell | SwiftUI `MenuBarExtra`, `LSUIElement=true` | Menu-bar presence, settings/history/onboarding windows, status states | Wispr menu-bar app + web dashboard |
 | HUD overlay | Borderless always-on-top transparent `NSPanel`, live RMS waveform | "Is it hearing me" feedback; makes secure-input refusal and context-read state visible | Wispr recording pill overlay |
-| HotkeyManager | Listen-only `CGEventTap` (`.cgSessionEventTap`); KeyboardShortcuts for recorder UI | Global push-to-talk (hold, default Right Option/Fn) + double-tap lock; `IsSecureEventInputEnabled()` refusal | Wispr global hotkey |
+| HotkeyManager | Listen-only `CGEventTap` (`.cgSessionEventTap`); KeyboardShortcuts for recorder UI | Global push-to-talk (hold, default Right Option; fn/Globe bindable) + double-tap lock on the SAME key (window measured press-to-press, timed from each event's own mach timestamp — never the handler's clock, which includes however long the main thread spent opening the mic), released by the next press of it; `IsSecureEventInputEnabled()` refusal | Wispr global hotkey |
 | AudioEngine | `AVAudioEngine` tap → `AVAudioConverter` 16kHz mono; `Deque<Float>` ring buffer | Always-running capture, 500ms pre-roll so speech onset before keypress is never lost | Wispr streaming capture |
-| VadGate | Silero VAD (FluidAudio CoreML `VadManager`) | Silence trim, hands-free auto-stop, idle ring-buffer gating | Wispr end-of-speech detection |
+| VadGate | Silero VAD (FluidAudio CoreML `VadManager`) | Silence trim only — it never decides a dictation is over | Wispr end-of-speech detection |
+| SelfRepair | Deterministic, deletion-only rules, no model; NaturalLanguage for the language gate and R4's word-class tests | Removes the speaker's own repairs — repeats, cut-off words, restarts, cued corrections ("Friday, no wait, Saturday"), sentence retractions — after the dictionary and before the filler strip, under the strip's gate; repeats and cut-off words at every cleaning level, corrections and lone non-words at Standard; spoken layout markers are boundaries it never crosses, and a correction inside words he presents as words (reported, quoted, specified) is kept where a frame around them shows it — a heuristic that new phrasings get past (`docs/self-repair.md` §3, §7); a double that is meant is kept: another language's ("tanti tanti", "lomi lomi", "caldo caldo"), one that stands alone ("Cool cool, see you then"; a list item between bare layout markers is not alone, and its double goes), a particle before the same preposition ("swing by by noon"); so are a short word of another language ("ti amo", "ve lo dico") and another language's idiom ("Uno a uno" is no restart); a "scratch that" before a bare noun phrase takes back only that phrase's slot ("Book a window seat, scratch that, an aisle seat"), and before a verb phrase only the verb phrase when an auxiliary, "to", a coordinator or "please" stands before its verb and no relative clause after a verb holds it ("I'll call him, scratch that, text him tonight" keeps "I'll"; "Email the guy who can fix it, scratch that, call him" → "Call him"; "The client who called will email the contract, scratch that, mail the contract" keeps "The client who called will"); a verb phrase after a cue never takes a noun's place ("Reset the branch, I mean, fork the branch" keeps both), and a noun with its own object after "scratch that" is no verb phrase ("Send the team, scratch that, client the slides" keeps both; "Send the file, scratch that, link to the file" → "Send the link to the file"); a compound noun's head is no slot for a lone word: a new modifier said with the head again replaces the compound ("the staging bucket, I mean, prod bucket" → "the prod bucket"), a possessive said with the head again keeps both, after every cue ("the shared folder, I mean, Sam's folder"), a modifier alone keeps both; after "scratch that" a name, a subject with its verb or a word modifying a possessive is no new verb ("Can you send the invoice, scratch that, Dana Smith the invoice?" → "Can you send Dana Smith the invoice?"); every change of the last two rounds refuses a deletion, and no correction takes a word v11's rules keep: each dictation runs through them first, and nothing they keep is deleted; English only; `[cleanup] self_repair = false` (Settings: "Fix self-corrections") turns it off, leaving the filler strip as it was before the rules; `docs/self-repair.md` | Wispr's cloud LLM "backtrack" auto-edit |
+| SpokenStructure | Deterministic, no model | Spoken layout ("new paragraph", "bullet point", "and I quote…unquote") + strictly-gated list inference; applied AROUND the LLM so the output gate never sees a line break | Wispr's fine-tuned cloud formatter (inference-only, no commands) |
 | Transcriber | FluidAudio `AsrManager`, Parakeet-tdt-0.6b-v2 CoreML, `.cpuAndNeuralEngine` | ASR stage 1: ~190ms final pass; incremental chunks for >10s holds | Wispr cloud ASR (<200ms budget) |
-| Formatter | llama.cpp static xcframework, in-process C API, Metal, persistent KV cache, prompt-lookup decoding, supervised (auto-reinit on hang) | Stage 2 auto-edits: fillers, punctuation, per-app tone; skippable (raw mode + <6-word fast path) | Wispr cloud LLM auto-edits (<200ms budget) |
+| Formatter | llama.cpp static xcframework, in-process C API, Metal, persistent KV cache, prompt-lookup decoding, supervised (auto-reinit on hang) | Stage 2 auto-edits: fillers, punctuation, per-app tone; skippable (raw mode + <6-word fast path + >150-word ceiling, counted before the self-repair rules) | Wispr cloud LLM auto-edits (<200ms budget) |
 | DictionaryEngine | Pure Swift precompiled case-aware substitution table | Custom vocab guaranteed even when LLM is skipped; terms also injected into prompt | Wispr personal dictionary |
 | ContextService | `AXUIElementCreateSystemWide` + `kAXFocusedUIElementAttribute`; `NSWorkspace.frontmostApplication` | App/context snapshot at key **press**; hard-refuses secure text fields | Wispr app-context awareness |
 | TextInserter | AX direct-set (`AXUIElementSetAttributeValue`) fast path; `NSPasteboard` + `org.nspasteboard.ConcealedType` + Cmd+V `CGEvent` fallback; changeCount-guarded restore | Insert at cursor in any app; per-char typing explicitly avoided (non-viable on macOS) | Wispr text insertion |
@@ -129,13 +134,16 @@ sequenceDiagram
 | Hotkey release → utterance finalize | ~5ms | Ring/utterance buffers already in memory (verified whisper-local recipe); no stream start, no file I/O |
 | ASR final pass (Parakeet CoreML, ANE) | 190–250ms | Verified: FluidAudio Parakeet-tdt-0.6b-v2 ≈ 0.19s short utterance on M4 (~155x RTFx); incremental chunking keeps the final pass short for >10s dictations |
 | Dictionary substitution | <1ms | Precompiled regex table over ~100 tokens, native Swift |
+| Self-repair rules | <1ms typical | Measured on the maintainer's dictations: p50 0.04ms up to 60 words, 1.7ms over 150 (release, M2 Pro, `whispr-bench repairs`); the language check runs only when a rule fired or a cued swap needs a word class |
 | Context snapshot | 0ms on critical path | Prefetched at key **press**, in parallel with speech |
 | LLM prefill / TTFT | ~50ms | Static system prompt + per-app style block persistently KV-cached; only the transcript is newly prefilled (Metal prefill >1000 tok/s at 1B Q4) |
-| LLM generation (~80–100 tokens, capped at 2× input) | 200–330ms | Llama-3.2-1B Q4_K_M ≈ 0.75GB weights; ~150–200 tok/s raw on ≥120GB/s unified memory; prompt-lookup speculative decoding (copy-heavy edit task) → 2–3x effective. **0ms** in raw mode / <6-word fast path |
+| LLM generation (~80–100 tokens, capped at 2× input) | 200–330ms | Llama-3.2-1B Q4_K_M ≈ 0.75GB weights; ~150–200 tok/s raw on ≥120GB/s unified memory; prompt-lookup speculative decoding (copy-heavy edit task) → 2–3x effective. **0ms** in raw mode / <6-word fast path / **>150-word ceiling** |
 | Insertion (pasteboard + Cmd+V CGEvent, or AX direct-set) | 30–60ms | Verified OpenWhispr/whisper-local recipe; dominated by target app's paste handling |
 | **TOTAL end-of-speech → text inserted** | **~480–650ms (p99 ≤ ~700ms)** | Sum of above. **Wispr Flow p99: ~700ms** (200 ASR + 200 LLM + 200 network + overhead). whispr-bro deletes the network budget, which absorbs local inference being slower than hosted GPUs |
 
 Per-stage timings are instrumented with `os_signpost`, written to every history row, **displayed in the history UI**, and regression-tested by `Tests/LatencyHarness` against fixture audio.
+
+**The budget above is a normal dictation** (a hold, or a short hands-free session). A LONG hands-free session is a different shape and is not held to it: on a one-off measurement of a 5-minute utterance (901 words, synthesised, M-series — not a tracked artifact; the latency harness and the 81-seed set both stop at 150 words), VAD trim ≈ 256ms and Parakeet ≈ 1.5s, with the LLM stage skipped outright by the `llmWordLimit` ceiling — so ~1.8s end-to-end, and every word survives. The ceiling counts the dictation as it was before the self-repair rules (`DictationPipeline.FormatterInput.ceilingWords`), so their deletions never bring a long dictation onto the model. The ceiling exists because the auto-edit stage is only measured to 150 words: above ~200 the model was observed paraphrasing a 450-word dictation down to 121 words, a shrink the live output gate's 0.25 floor lets through. Long dictations ship the rule-based cleanup, deterministically.
 
 ## 6. Model choices table
 
@@ -186,9 +194,9 @@ stateDiagram-v2
     Armed --> Recording: secure-input check passed, context snapshot started
     Armed --> Error: secure input active or AXSecureTextField focused
     Recording --> Recording: double-tap lock enables hands-free mode
-    Recording --> Transcribing: keyUp, or VAD end-of-speech in locked mode
-    Transcribing --> Formatting: transcript ready, app not raw-mode, 6+ words
-    Transcribing --> Inserting: raw mode or short-utterance fast path
+    Recording --> Transcribing: keyUp (hold), or the next keyDown (hands-free), or the safety cap (90s hold / 300s hands-free)
+    Transcribing --> Formatting: transcript ready, not rules-only, 6+ words after the rules, at most 150 counted before them
+    Transcribing --> Inserting: rules-only mode, short-utterance fast path (under 6 words after the rules), or over 150 words counted before them
     Formatting --> Inserting: formatted text sanitized
     Formatting --> Inserting: LLM hang or crash, supervisor falls back to raw text
     Inserting --> Idle: paste confirmed, async history write, clipboard restore scheduled
@@ -221,9 +229,11 @@ whispr-bro/
 │   │   ├── HistoryView.swift         # FTS5 search + per-stage latency columns
 │   │   └── OnboardingView.swift      # mic / Accessibility / Input Monitoring walkthrough
 │   ├── Hotkey/HotkeyManager.swift    # listen-only CGEventTap, hold + double-tap-lock, secure-input check
+│   ├── Hotkey/DictationGesture.swift # pure press/release/latch rules (unit-tested)
+│   ├── Text/SpokenStructure.swift    # spoken layout: lists, quotes, breaks (docs/formatting-benchmark.md)
 │   ├── Audio/
 │   │   ├── AudioEngine.swift         # AVAudioEngine tap, 16kHz mono, 500ms pre-roll Deque ring buffer
-│   │   └── VadGate.swift             # Silero VAD, silence trim, auto-stop
+│   │   └── VadGate.swift             # Silero VAD, silence trim
 │   ├── ASR/
 │   │   ├── Transcriber.swift         # actor; AsrEngine protocol; incremental chunking >10s
 │   │   ├── ParakeetEngine.swift      # FluidAudio AsrManager, ANE-pinned, local-dir only
@@ -240,6 +250,7 @@ whispr-bro/
 │   │   ├── TextInserter.swift        # AX direct-set fast path -> Cmd+V CGEvent fallback
 │   │   └── PasteboardGuard.swift     # ConcealedType write, changeCount-checked 2s restore
 │   ├── Dictionary/DictionaryEngine.swift
+│   ├── Dictionary/SelfRepair*.swift  # deletion-only self-repair rules (docs/self-repair.md)
 │   ├── Store/
 │   │   ├── Database.swift            # GRDB, migrations, FTS5
 │   │   ├── HistoryRepo.swift
@@ -249,12 +260,13 @@ whispr-bro/
 │       ├── Permissions.swift         # AXIsProcessTrusted, mic auth, grant-lapse watchdog
 │       ├── Latency.swift             # os_signpost per-stage instrumentation
 │       └── Log.swift                 # os.Logger, local only
-├── Sources/whispr-bench/main.swift   # Phase 1 CLI spike + permanent bench harness (records, times stages)
+├── Sources/whispr-bench/WhisprBench.swift  # Phase 1 CLI spike + permanent bench harness (records, times stages); Report.swift = eval glue
 ├── Vendor/llama.xcframework          # built by script, pinned tag, gitignored binary
 ├── Models/                           # gitignored; populated by fetch-models.sh
 ├── scripts/
 │   ├── fetch-models.sh               # install-time only: pinned revisions + sha256 verify
 │   ├── build-llama-xcframework.sh    # pinned llama.cpp tag; artifact sha256 checked in
+│   ├── patches/llama.cpp/            # local patches applied on top of that tag (Metal idle-wakeup fix); the framework records which set it was built from, make-app.sh checks
 │   ├── audit-offline.sh              # nm/otool: fail CI if networking symbols exist in binary
 │   ├── verify-offline-capture.sh     # tcpdump session over a full dictation cycle
 │   └── net-tripwire.dylib            # debug-only DYLD interpose: abort on connect()
@@ -268,7 +280,7 @@ whispr-bro/
 ## 11. Build milestones
 
 1. **Walking skeleton (hotkey → ASR → paste, no LLM).** Starts with the day-1 throwaway CLI spike (`whispr-bench`): record on keypress, transcribe with FluidAudio Parakeet from the local model dir, print per-stage timings — validating the 0.19s ASR number and the mic TCC flow **on the actual machine** before any app code. Then: menu-bar shell, CGEventTap push-to-talk, AVAudioEngine capture with 500ms pre-roll, clipboard+Cmd+V insertion, permission onboarding. *Acceptance:* dictate into TextEdit, Slack, and a terminal; measured ASR ≤300ms on-device; pre-roll captures the first word when speaking starts before keypress; survives reboot. Parakeet's native punctuation already beats macOS dictation — daily-usable from here.
-2. **Capture robustness + HUD.** Silero VAD trim/auto-stop, double-tap lock, secure-input detection with visible refusal, event-tap watchdog (`kCGEventTapDisabledByTimeout` re-enable), changeCount-safe pasteboard restore with `org.nspasteboard.ConcealedType`, AX direct-set insertion fast path, waveform HUD `NSPanel`. *Acceptance:* dictation refused with HUD warning in a password field; clipboard survives a user copy during the 2s window; tap self-recovers under synthetic load; HUD shows live RMS.
+2. **Capture robustness + HUD.** Silero VAD trim, double-tap lock (ended by the next press, never by silence), secure-input detection with visible refusal, event-tap watchdog (`kCGEventTapDisabledByTimeout` re-enable), changeCount-safe pasteboard restore with `org.nspasteboard.ConcealedType`, AX direct-set insertion fast path, waveform HUD `NSPanel`. *Acceptance:* dictation refused with HUD warning in a password field; clipboard survives a user copy during the 2s window; tap self-recovers under synthetic load; HUD shows live RMS.
 3. **Measurement gate + LLM stage.** **Hard gate:** build the bench harness *first*, measure the ~100-token formatting pass for Llama-3.2-1B Q4_K_M vs Qwen2.5-1.5B Q4 vs Qwen3-1.7B Q4 (no-think) on this machine, then freeze the default model from data. Then: in-process llama.cpp with persistent KV-cached prefix, prompt-lookup decoding, `max_tokens = 2×` transcript length, <6-word rule-based fast path, per-app raw mode, output sanitizer, EngineSupervisor (hung-decode teardown → raw fallback). *Acceptance:* p99 end-of-speech→inserted ≤700ms across the fixture set with LLM on; a deliberately hung decode falls back to raw text within 1s; no runaway generation exceeds the cap.
 4. **Context awareness.** AX snapshot at key press, bundle-ID style rules (Slack casual / Mail formal / IDE code-aware presets, user-editable), optional nearby-text conditioning (default **off**), hardened password-field exclusion. *Acceptance:* same sentence formats differently in Slack vs Mail; context read verified as 0ms on critical path via signposts; secure-field tests pass against Safari, Chrome, and 1Password fields.
 5. **Personal dictionary + config mirror.** Deterministic post-ASR substitution engine + dictionary injection into the prompt; settings editors; TOML export/import so styles and vocab are hand-editable and version-controllable. *Acceptance:* a custom proper noun survives both raw mode and LLM mode; round-trip TOML edit is reflected live.
@@ -285,6 +297,7 @@ whispr-bro/
 | Clipboard-paste side effects (managers, terminals, secure input) | AX direct-set fast path; ConcealedType marker; changeCount-checked restore; `IsSecureEventInputEnabled()` visible refusal; per-app "leave in clipboard" override |
 | llama.cpp C API churn / xcframework rebuilds | Pinned tag + checked-in artifact sha256; all calls isolated behind the engine-agnostic Formatter protocol; MLX-Swift documented as escape hatch |
 | Event-tap fragility + TCC grant lapse after re-sign | Zero-work tap callback (enqueue only); watchdog re-enable; launch-time permission re-verification with guided re-grant |
+| The tap source runs on the main run loop, so main-thread work (opening a USB mic costs ~150ms) delays callbacks | Gesture timings come from `CGEvent.timestamp` converted through the mach timebase, so a delayed callback still measures the key and not the stall; `hotkey`-category log lines report held/gap/armed for every transition, and `scripts/gesture-probe.swift` replays exact gestures against the running app |
 | Hung/crashed llama context stalls the pipeline | EngineSupervisor: detect stuck `llama_decode`, teardown + rebuild context, fall back to raw insertion — never block a dictation |
 | Memory ~2.5GB steady-state (Parakeet + 1B + KV) | First-class idle-unload setting for the LLM; acceptable on 16GB+ |
 | Swift iteration speed for a solo dev | Every hard component is an SPM package or a verified recipe (VoiceInk = design reference only, GPL; OpenWhispr/whisper-local = MIT/portable); novel code is ~5–7k LOC of glue |

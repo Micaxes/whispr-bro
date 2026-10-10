@@ -2,20 +2,10 @@ import AppKit
 import SwiftUI
 import WhisprBroCore
 
-/// Pipeline phases the HUD can show.
-enum HUDPhase: Equatable {
-    case recording
-    case locked // hands-free (double-tap lock)
-    case transcribing
-    case inserting
-    case refused(String)
-    case warning(String)
-}
-
 /// Observable backing the HUD SwiftUI view.
 @MainActor
 final class HUDModel: ObservableObject {
-    @Published var phase: HUDPhase = .recording
+    @Published var phase: HUDPhase = .idle
     /// Recent RMS levels (oldest→newest) for the waveform.
     @Published var levels: [Float] = Array(repeating: 0, count: HUDModel.barCount)
 
@@ -57,6 +47,9 @@ final class HUDController {
     /// Called ~30fps while recording to sample the current input level.
     var levelProvider: (() -> Float)?
 
+    /// The pebble is on screen right now.
+    var isShowing: Bool { panel?.isVisible ?? false }
+
     func show(_ phase: HUDPhase) {
         hideWorkItem?.cancel()
         hideWorkItem = nil
@@ -70,7 +63,11 @@ final class HUDController {
     func update(_ phase: HUDPhase) {
         hideWorkItem?.cancel() // a fresh phase cancels any pending hide
         hideWorkItem = nil
-        guard panel != nil else { show(phase); return }
+        // A panel that was ordered out must be ordered front again — `update`
+        // alone only mutates the model, so without this a HUD hidden mid-flow
+        // (a toast that came and went) never comes back and the rest of the
+        // dictation runs invisibly.
+        guard let panel, panel.isVisible else { show(phase); return }
         model.phase = phase
         updateLevelTimer(for: phase)
     }
@@ -84,6 +81,7 @@ final class HUDController {
             self?.hideWorkItem = nil
             self?.panel?.orderOut(nil)
             self?.model.resetLevels()
+            self?.model.phase = .idle
         }
         hideWorkItem = work
         if delay > 0 {
@@ -96,7 +94,7 @@ final class HUDController {
     // MARK: - Private
 
     private func updateLevelTimer(for phase: HUDPhase) {
-        let live = (phase == .recording || phase == .locked)
+        let live = phase.isLive
         if live, levelTimer == nil {
             let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
                 guard let self else { return }
@@ -167,7 +165,19 @@ private struct HUDView: View {
             EchoWMark(color: Brand.paper, listening: isLive)
                 .frame(width: 30, height: 20)
 
-            if isLive {
+            if case .locked(let hint) = model.phase {
+                // Hands-free: the waveform plus the way out. A latched mic that
+                // looks identical to a held one is how a session gets forgotten.
+                VStack(alignment: .leading, spacing: 4) {
+                    Waveform(levels: model.levels)
+                        .frame(maxWidth: .infinity, maxHeight: 24)
+                    Text(hint)
+                        .font(Brand.mono(10, .medium))
+                        .foregroundStyle(Brand.lightMono)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+            } else if isLive {
                 Waveform(levels: model.levels)
                     .frame(maxWidth: .infinity)
             } else {
@@ -189,12 +199,7 @@ private struct HUDView: View {
     }
 
     /// Recording or hands-free = "listening": show the live waveform + ripple.
-    private var isLive: Bool {
-        switch model.phase {
-        case .recording, .locked: true
-        default: false
-        }
-    }
+    private var isLive: Bool { model.phase.isLive }
 
     private var labelColor: Color {
         switch model.phase {
@@ -203,14 +208,18 @@ private struct HUDView: View {
         }
     }
 
+    /// Status text for the non-live phases. The two live cases are unreachable
+    /// — `isLive` routes them to the waveform above — but the switch must be
+    /// exhaustive, so they carry what they WOULD say.
     private var label: String {
         switch model.phase {
         case .recording: "recording…"
-        case .locked: "hands-free…"
+        case .locked(let hint): "hands-free · \(hint)"
         case .transcribing: "transcribing…"
         case .inserting: "inserting…"
         case .refused(let message): message
         case .warning(let message): message
+        case .idle: ""
         }
     }
 }

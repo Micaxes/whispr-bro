@@ -14,6 +14,8 @@ import os.log
 
 /// Policy wrapper over `SystemLanguageModel` mirroring `TextFormatter`'s
 /// safety rails (spec §4 Formatter, §11.3):
+///  - **long-utterance ceiling**: over `llmWordLimit` words the model is
+///    skipped BY DESIGN (see `TextFormatter.Config.llmWordLimit`).
 ///  - **short-utterance fast path**: under `fastPathWordLimit` words the model
 ///    is skipped (Parakeet already punctuates) — unless the utterance carries
 ///    a plausible self-correction cue that the fast path can't resolve;
@@ -22,11 +24,12 @@ import os.log
 ///  - **hard time budget**: the request races a deadline; past `hangTimeout`
 ///    the dictation falls back to the rule-based result (the orphaned request
 ///    is cancelled and dropped);
-///  - **output validation**: `TextFormatter.plausibleReformatting` rejects
-///    empty, multi-line-out-of-one-line, word-count-out-of-band, and
-///    content-word-introducing outputs — the measured small-model failure
-///    modes (preambles, commentary, runaway, in-band answers) — before
-///    anything reaches the user.
+///  - **output validation**: `TextFormatter.gateModelOutput` — the ONE gate
+///    shared with the macOS llama stage: `ContentGuard`'s gold-free gates
+///    on the `.live` profile (L1-L6), then `implausibility` (the
+///    wordless reply, plus L1 and L2 read off the same tokens) — the
+///    measured small-model failure modes (answers, invented math, preambles,
+///    commentary, runaway) — before anything reaches the user.
 ///
 /// Sessions are created per call: `LanguageModelSession` accumulates its
 /// transcript across turns, which would both leak context between unrelated
@@ -38,6 +41,11 @@ import os.log
 public actor FoundationModelsFormatter {
     public struct Config: Sendable {
         public var fastPathWordLimit: Int = 6
+        /// Upper bound on what goes to the model, in words — the same ceiling
+        /// and the same reasons as `TextFormatter.Config.llmWordLimit`. iOS
+        /// needs it MORE than macOS: `SessionController.maxSegmentSeconds` is
+        /// five minutes, so a single segment can reach ~900 words.
+        public var llmWordLimit: Int = TextFormatter.Config().llmWordLimit
         /// Deadline before falling back to the rule-based result. 3.0s flat
         /// (owner-delegated): chosen between the contract's ~2.5s — which
         /// false-trips the measured M2 Pro cold start (2.8s) — and the
@@ -135,13 +143,18 @@ public actor FoundationModelsFormatter {
     /// output all degrade to the rule-based result so a dictation always
     /// lands. Same contract as `TextFormatter.format`; `language` is fixed at
     /// init (launch-fixed on iOS, like the ASR engine).
+    /// `ceilingWords`: the count the long-utterance ceiling applies to when
+    /// it is not `raw`'s own — the dictation before the self-repair rules
+    /// (`DictationPipeline.FormatterInput.ceilingWords`), as on macOS.
     public func format(
         _ raw: String, styleDirective: String = "",
-        preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false
+        preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false,
+        ceilingWords: Int? = nil
     ) async -> String {
         await formatDetailed(
             raw, styleDirective: styleDirective,
-            preserveCasingFor: preserveCasingFor, resolveCorrections: resolveCorrections
+            preserveCasingFor: preserveCasingFor, resolveCorrections: resolveCorrections,
+            ceilingWords: ceilingWords
         ).text
     }
 
@@ -217,7 +230,8 @@ public actor FoundationModelsFormatter {
     /// wrong (answer, commentary, runaway) instead of only that it fell back.
     public func formatDetailed(
         _ raw: String, styleDirective: String = "",
-        preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false
+        preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false,
+        ceilingWords: Int? = nil
     ) async -> (text: String, source: FormatterSource, rejected: String?) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return (trimmed, .fallback(.fastPath), nil) }
@@ -232,6 +246,13 @@ public actor FoundationModelsFormatter {
             return (TextFormatter.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
                     .fallback(.fastPath), nil)
         }
+        // And over the ceiling it is skipped, not attempted — a five-minute
+        // segment must reach the field whole. Counted before the self-repair
+        // rules when the pipeline says so, as on macOS.
+        if max(wordCount, ceilingWords ?? 0) > config.llmWordLimit {
+            return (TextFormatter.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
+                    .fallback(.tooLong), nil)
+        }
         guard model.isAvailable else {
             return (TextFormatter.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
                     .fallback(.unavailable), nil)
@@ -241,8 +262,7 @@ public actor FoundationModelsFormatter {
         // instructions block (the model follows instructions far more
         // reliably than a prompt aside, and Apple's instruction/prompt
         // separation is also what resists injection from dictated text).
-        let instructions = styleDirective.isEmpty
-            ? baseInstructions : baseInstructions + "\n\n" + styleDirective
+        let instructions = promptText(styleDirective: styleDirective)
         let cap = max(config.maxTokensFloor, Int(Double(wordCount) * config.tokensPerWord))
         // Greedy for deterministic edits, like the llama stage.
         let options = GenerationOptions(sampling: .greedy, maximumResponseTokens: cap)
@@ -257,20 +277,27 @@ public actor FoundationModelsFormatter {
             return try await session.respond(to: prompt, options: options).content
         }
 
-        // Validate before trusting: sanitize + punctuation repair, then the
-        // plausibility gate (preamble/commentary/runaway/introduced content
-        // words → nil).
+        // Validate before trusting: the marker echo is stripped first (it is
+        // scaffolding, not content), then the shared output gate — sanitize
+        // + punctuation repair, ContentGuard, plausibility — decides.
         switch raced {
         case .failed(let reason):
             return (TextFormatter.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
                     .fallback(reason), nil)
         case .responded(let output):
             let unwrapped = Self.stripTranscriptMarkers(output)
-            guard let plausible = TextFormatter.plausibleReformatting(unwrapped, of: trimmed) else {
+            let gate = TextFormatter.gateModelOutput(unwrapped, of: trimmed, language: language)
+            guard let accepted = gate.accepted else {
+                // Rule public, the refused reply private — the same split
+                // the llama stage logs (dictated text never lands in clear).
+                log.error("""
+                    fm format output rejected — \(gate.reason ?? "?", privacy: .public): \
+                    \(TextFormatter.logHead(output)); using raw
+                    """)
                 return (TextFormatter.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
                         .fallback(.implausible), output)
             }
-            return (plausible, .model, nil)
+            return (accepted, .model, nil)
         }
     }
 
@@ -281,8 +308,8 @@ public actor FoundationModelsFormatter {
         "<transcript>\n" + transcript + "\n</transcript>"
     }
 
-    /// A marker echo in the output would trip the introduced-content-word
-    /// gate ("transcript" is rarely input vocabulary), so strip it before
+    /// A marker echo in the output would count as novel content against the
+    /// input ("transcript" is rarely input vocabulary), so strip it before
     /// validation — the echo is scaffolding, not content.
     static func stripTranscriptMarkers(_ output: String) -> String {
         var s = output.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -336,10 +363,19 @@ public actor FoundationModelsFormatter {
     /// appropriate auto-edit instruction — shared verbatim with the llama
     /// stage (PromptBuilder owns ONE lexicon per language) — then, for
     /// English, the few-shots.
-    private var baseInstructions: String {
+    private nonisolated var baseInstructions: String {
         var blocks = [Self.framingPreamble, PromptBuilder.systemPrompt(for: language)]
         if language == .english { blocks.append(Self.fewShots) }
         return blocks.joined(separator: "\n\n")
+    }
+
+    /// The exact instructions block a request under `styleDirective`
+    /// sends — what `formatDetailed` builds, exposed so `whispr-bench eval`
+    /// can hash the prompt it measured (`prompt_sha256`) instead of a
+    /// re-typed copy that could drift from it. Reads only the launch-fixed
+    /// `language`, so it needs no actor hop.
+    public nonisolated func promptText(styleDirective: String) -> String {
+        styleDirective.isEmpty ? baseInstructions : baseInstructions + "\n\n" + styleDirective
     }
 }
 #endif

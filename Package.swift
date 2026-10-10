@@ -65,7 +65,10 @@ let package = Package(
         ),
         .testTarget(
             name: "WhisprBroCoreTests",
-            dependencies: ["WhisprBroCore"]
+            dependencies: ["WhisprBroCore"],
+            // JSON fixtures, read from #filePath (SelfRepairTests), not
+            // bundled as resources.
+            exclude: ["Fixtures"]
         ),
         .testTarget(
             name: "WhisprBroIPCTests",

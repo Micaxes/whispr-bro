@@ -23,3 +23,17 @@ ios/WhisprBro-iOS.xcodeproj
 ios/*.xcodeproj
 ios/Models/
 ios/build/
+
+# personal eval fixtures (whispr-bench history-export) — his dictations
+# live in $WHISPR_EVAL_HOME (~/OS/dev/whispr-bro-eval/), never in the tree;
+# scripts/lint-fixtures.sh (CI) is the check, this is the belt. Nothing
+# legitimate is a root-level .json, so any one there is a stray fixture.
+/eval/personal*
+/Bench/personal*
+*personal*.json
+*personal*.jsonl
+/*.json
+
+# eval run files: `--json runs/x.json` from the checkout root lands here,
+# and a run file stores every row's text (docs/eval-benchmark.md §7)
+/runs/

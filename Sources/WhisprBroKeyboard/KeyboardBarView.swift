@@ -467,7 +467,7 @@ private struct Waveform: View {
 
 /// Shown in place of the mic + strip when `hasFullAccess` is false. Full
 /// Access is what lets iOS grant the keyboard its App Group — the only
-/// channel to the whispr bro app. One line of WHY with the privacy stance up
+/// channel to the main app. One line of WHY with the privacy stance up
 /// front (the toggle scares, rightly — this binary contains zero networking
 /// code) and one line of WHERE, nothing else.
 private struct FullAccessPanel: View {

@@ -30,9 +30,9 @@ public enum HotkeyAction: String, CaseIterable, Codable, Sendable {
     public var subtitle: String {
         switch self {
         case .dictate: return "Hold to talk, release to insert."
-        case .handsFree: return "Double-tap the dictate key; VAD auto-stops."
+        case .handsFree: return "Double-tap the dictate key (it follows Dictate); press it again to finish."
         case .commandMode: return "Select text, hold, and speak an edit (\"make it formal\")."
-        case .cancel: return "Aborts without inserting (still saved to history)."
+        case .cancel: return "Aborts and discards the audio — nothing is transcribed or saved."
         case .pasteLast: return "Re-insert the most recent dictation."
         case .copyLast: return "Copy the most recent dictation to the clipboard."
         }
@@ -44,6 +44,20 @@ public enum HotkeyGesture: String, Codable, Sendable {
     case hold        // .began on press, .ended on release (zero-debounce primary path)
     case doubleTap   // .fired on a second press within the window
     case tap         // .fired once on key-down
+
+    /// Delivery order for gestures that share one physical key, low first.
+    ///
+    /// Load-bearing: a `doubleTap` latch acts on the recording the `hold`'s
+    /// `.began` just started, so the hold MUST be delivered first. Entry order
+    /// can't carry that — `HotkeyRecorder.update` moves the rebound action to
+    /// the end of the list on every rebind — so the order is derived here.
+    public var emitPriority: Int {
+        switch self {
+        case .hold: 0
+        case .tap: 1
+        case .doubleTap: 2
+        }
+    }
 }
 
 /// The phase reported to the consumer for an action.
@@ -75,10 +89,16 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
         | CGEventFlags.maskAlternate.rawValue | CGEventFlags.maskShift.rawValue
         | CGEventFlags.maskSecondaryFn.rawValue
 
-    /// Device-specific NX bit that distinguishes the left/right instance of a
-    /// modifier key (so releasing Right-Option while Left-Option is held reads
-    /// correctly). nil for non-modifier or unlisted keys.
-    public var deviceSpecificMask: UInt64? {
+    /// The flag bit that is set exactly while THIS key is physically down.
+    ///
+    /// For the paired modifiers it's the device-specific NX bit, so releasing
+    /// Right-Option while Left-Option is held reads correctly. fn/Globe has no
+    /// left/right instance, so it's the ordinary secondary-fn bit.
+    ///
+    /// nil means we cannot tell whether the key is down — and a caller must
+    /// then report "not pressed" rather than guess: guessing off an unrelated
+    /// modifier's bit is how a key-up gets missed and the mic stays open.
+    public var pressedMask: UInt64? {
         switch keyCode {
         case 61: return 0x40    // Right Option  (NX_DEVICERALTKEYMASK)
         case 58: return 0x20    // Left Option
@@ -88,9 +108,11 @@ public struct HotkeyBinding: Codable, Equatable, Sendable {
         case 55: return 0x08    // Left Command
         case 60: return 0x04    // Right Shift
         case 56: return 0x02    // Left Shift
+        case 63: return CGEventFlags.maskSecondaryFn.rawValue   // fn/Globe — no L/R instance
         default: return nil
         }
     }
+
 
     /// Whether the required modifier chord is satisfied by `flags`. Superset
     /// match — all required modifiers must be present, but extras are allowed. A
@@ -141,6 +163,62 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
         entries.filter { $0.action == action }.map { $0.binding }
     }
 
+    /// Enforce the one invariant the model can't express in its shape:
+    /// **hands-free is the dictate key, double-tapped.** Its subtitle has
+    /// always said so, but it used to be an independently rebindable entry —
+    /// so rebinding Dictate stranded hands-free on the old key and the gesture
+    /// silently stopped existing on both. Applied on load, on save, and after
+    /// every edit, so no stored config can be in the broken state.
+    ///
+    /// With no dictate binding (he deleted it) there is no key to double-tap,
+    /// and the hands-free entry is dropped rather than left pointing nowhere.
+    public func normalized() -> HotkeyConfig {
+        // Rebuild the hands-free entry from scratch rather than editing one:
+        // it must appear when it is missing too, or removing the dictate
+        // shortcut and setting a new one leaves the latch gone for good.
+        let others = entries.filter { $0.action != .handsFree }
+        // Only a modifier-only dictate key can carry it — double-taps are
+        // matched on `flagsChanged`, and `handleKeyDown` deliberately does not
+        // support a regular-key double-tap. No key to double-tap, no entry:
+        // better an empty row than a label for a gesture that does nothing.
+        guard let dictate = others.first(where: { $0.action == .dictate })?.binding,
+              dictate.isModifierOnly
+        else { return HotkeyConfig(entries: others) }
+
+        let latch = HotkeyBinding(
+            keyCode: dictate.keyCode, modifiers: dictate.modifiers,
+            gesture: .doubleTap, isModifierOnly: true)
+        var out: [Entry] = []
+        var placed = false
+        for e in others {
+            out.append(e)
+            if e.action == .dictate, !placed {
+                out.append(.init(.handsFree, latch))
+                placed = true
+            }
+        }
+        return HotkeyConfig(entries: out)
+    }
+
+    /// The entries bound to one physical key, in the order their phases must
+    /// reach the pipeline: `hold` first, then `tap`, then `doubleTap` (see
+    /// `HotkeyGesture.emitPriority`). Ties keep their entry order, so two
+    /// bindings of the same gesture stay put.
+    ///
+    /// Never iterate `entries` directly to dispatch a key: Settings rewrites
+    /// entry order on every rebind, and a config where `handsFree` happens to
+    /// precede `dictate` would make the double-tap fire against an idle
+    /// pipeline — hands-free silently unreachable.
+    public func entriesInEmitOrder(keyCode: Int64) -> [Entry] {
+        entries.enumerated()
+            .filter { $0.element.binding.keyCode == keyCode }
+            .sorted {
+                ($0.element.binding.gesture.emitPriority, $0.offset)
+                    < ($1.element.binding.gesture.emitPriority, $1.offset)
+            }
+            .map(\.element)
+    }
+
     /// Defaults mirror Wispr Flow's STRUCTURE but keep whispr-bro's Right-Option
     /// (no system tweak, unlike Fn) and add Right-Command for command mode.
     public static let defaults = HotkeyConfig(entries: [
@@ -166,11 +244,14 @@ public struct HotkeyConfig: Codable, Equatable, Sendable {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
               let cfg = try? JSONDecoder().decode(HotkeyConfig.self, from: data)
         else { return defaults }
-        return cfg
+        // Normalize on the way in, so a config stored by an older build with a
+        // stranded hands-free binding repairs itself at launch.
+        return cfg.normalized()
     }
 
     public func save() {
-        if let data = try? JSONEncoder().encode(self) {
+        // …and on the way out, so nothing can persist the broken shape.
+        if let data = try? JSONEncoder().encode(normalized()) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
     }

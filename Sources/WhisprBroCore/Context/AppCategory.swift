@@ -33,11 +33,30 @@ public enum AppCategoryResolver {
         "com.apple.dt.Xcode": .ide,
         "com.google.android.studio": .ide,
         "com.sublimetext.4": .ide,
+        "com.sublimetext.3": .ide,
         "dev.zed.Zed": .ide,
+        "com.todesktop.230313mzl4w4u92": .ide,   // Cursor
+        "com.exafunction.windsurf": .ide,
+        "com.microsoft.VSCodeInsiders": .ide,
+        "com.vscodium": .ide,
+        "com.neovim.neovim": .ide,
+        // Every terminal here matters more than it used to: since
+        // SpokenStructure, a shell that resolves to .unknown would accept a
+        // spoken line break, and a newline in a shell is Return — it RUNS the
+        // half-typed command.
         "com.apple.Terminal": .terminal,
         "com.googlecode.iterm2": .terminal,
         "com.github.wez.wezterm": .terminal,
         "net.kovidgoyal.kitty": .terminal,
+        "com.mitchellh.ghostty": .terminal,
+        "dev.warp.Warp-Stable": .terminal,
+        "dev.warp.Warp-Preview": .terminal,
+        "org.alacritty": .terminal,   // upstream Info.plist
+        "io.alacritty": .terminal,    // some third-party builds
+        "co.zeit.hyper": .terminal,
+        "com.eugeny.tabby": .terminal,
+        "com.tabby": .terminal,
+        "org.tabby": .terminal,
         "com.apple.Notes": .notes,
         "md.obsidian": .notes,
         "notion.id": .notes,

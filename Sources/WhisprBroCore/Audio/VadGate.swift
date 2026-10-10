@@ -6,32 +6,24 @@ import Foundation
 /// offline: we hand it a pre-loaded `MLModel`, so it never touches
 /// DownloadUtils / the network — no `enforceOffline` dependency, no path quirk.
 ///
-/// Two jobs in task-008:
-///  - **Auto-stop** (`feed`): streaming end-of-speech detection for hands-free
-///    locked mode — returns `true` once the user has gone quiet for
-///    `minSilenceDuration`.
-///  - **Silence trim** (`trim`): drops only *leading and trailing* silence from
-///    a finished utterance (slices between the first and last detected speech),
-///    so interior quiet words are never lost and long dictation is never
-///    force-split.
+/// One job: **silence trim** (`trim`) — drop only *leading and trailing*
+/// silence from a finished utterance (slice between the first and last
+/// detected speech), so interior quiet words are never lost and long dictation
+/// is never force-split.
+///
+/// It deliberately does NOT decide when a dictation is over. The streaming
+/// end-of-speech detector that used to auto-stop hands-free mode was removed
+/// (see git history): a pause is not evidence that the speaker is done, and
+/// hands-free now ends only when he presses the key again.
 ///
 /// Beta in FluidAudio; a load failure is non-fatal — the pipeline runs without
-/// VAD (no auto-stop, no trim) rather than refusing to transcribe.
+/// VAD (no trim) rather than refusing to transcribe.
 public actor VadGate {
-    /// 256ms @ 16kHz — the unified model's fixed chunk.
-    public static let chunkSize = VadManager.chunkSize
     private static let sampleRate = 16_000
 
     private let modelFile: URL
     private let segConfig: VadSegmentationConfig
     private var manager: VadManager?
-
-    // Streaming state for auto-stop, reset per utterance.
-    private var streamState: VadStreamState?
-    private var pending: [Float] = []
-    /// Guards against actor reentrancy: `feed` awaits mid-drain, so a second
-    /// `feed` could otherwise read/write `streamState` concurrently.
-    private var draining = false
 
     public init(modelFile: URL, minSilenceDuration: Double = 0.8) {
         self.modelFile = modelFile
@@ -55,44 +47,6 @@ public actor VadGate {
         let model = try MLModel(contentsOf: modelFile, configuration: config)
         // 0.6 catches soft dictation onset better than the 0.85 default.
         manager = VadManager(config: VadConfig(defaultThreshold: 0.6), vadModel: model)
-    }
-
-    // MARK: - Streaming auto-stop (hands-free locked mode)
-
-    /// Begin a fresh streaming utterance. Safe to call even if VAD failed to
-    /// load (auto-stop is then simply unavailable).
-    public func beginStream() async {
-        guard let manager else { return }
-        streamState = await manager.makeStreamState()
-        pending.removeAll(keepingCapacity: true)
-        draining = false
-    }
-
-    /// Feed 16kHz mono samples captured so far; returns `true` once
-    /// end-of-speech is detected. No-op (returns false) if VAD isn't loaded.
-    /// Reentrancy-safe: overlapping calls buffer into `pending` and let the
-    /// in-flight drain consume them.
-    public func feed(_ samples: [Float]) async -> Bool {
-        guard let manager, streamState != nil else { return false }
-        pending.append(contentsOf: samples)
-        guard !draining else { return false }
-        draining = true
-        defer { draining = false }
-
-        var ended = false
-        while pending.count >= Self.chunkSize {
-            let chunk = Array(pending.prefix(Self.chunkSize))
-            pending.removeFirst(Self.chunkSize)
-            do {
-                let result = try await manager.processStreamingChunk(
-                    chunk, state: streamState!, config: segConfig)
-                streamState = result.state
-                if result.event?.kind == .speechEnd { ended = true }
-            } catch {
-                return false // degrade gracefully; caller keeps recording
-            }
-        }
-        return ended
     }
 
     // MARK: - Silence trim (finished utterance)

@@ -37,8 +37,9 @@ jobs:
         run: swift --version && cmake --version || brew install cmake
 
       # The llama.xcframework (Metal LLM engine) is gitignored and built from a
-      # pinned llama.cpp tag. Cache both the framework and the clone/build tree
-      # keyed on the build script so a source bump busts the cache.
+      # pinned llama.cpp tag plus the local patches in scripts/patches/llama.cpp.
+      # Cache both the framework and the clone/build tree, keyed on the build
+      # script AND the patches so a source bump or a patch edit busts the cache.
       - name: Cache llama.xcframework
         id: cache-llama
         uses: actions/cache@v4
@@ -46,17 +47,37 @@ jobs:
           path: |
             Vendor/llama.xcframework
             .build-llama
-          key: llama-${{ runner.os }}-${{ hashFiles('scripts/build-llama-xcframework.sh') }}
+          key: llama-${{ runner.os }}-${{ hashFiles('scripts/build-llama-xcframework.sh', 'scripts/patches/llama.cpp/*.patch') }}
 
       - name: Build llama.xcframework
         if: steps.cache-llama.outputs.cache-hit != 'true'
         run: scripts/build-llama-xcframework.sh
+
+      # The framework records the patch set it was built from, and make-app.sh
+      # refuses one that is not the checkout's. Fails here if the record is not
+      # being written, or a restored cache is not the patches' framework.
+      - name: Check llama.xcframework carries the checked-in patches
+        run: scripts/build-llama-xcframework.sh --check
 
       - name: Build (debug)
         run: swift build
 
       - name: Unit tests (model-free)
         run: swift test
+
+      # Privacy rail (docs/eval-benchmark.md §8, plan §3.3): no history row
+      # or shipped output may live in the tree — in the eval fixtures and in
+      # the format bench's alike. Uses the debug whispr-bench the step above
+      # built; fails on any repo-guard error.
+      - name: Fixture repo guard
+        run: scripts/lint-fixtures.sh .build/debug/whispr-bench
+
+      # The rail must fail closed: in throwaway repositories, every way git
+      # could hand it a short list (no checkout, a corrupt index, a nested
+      # repository it cannot read, a file, directory or tracked path it
+      # cannot read) exits 1, a clean tree 0 and a history row 1.
+      - name: Fixture repo guard fails closed
+        run: scripts/test-lint-fixtures.sh .build/debug/whispr-bench
 
       - name: Build (release)
         run: swift build -c release --product WhisprBro

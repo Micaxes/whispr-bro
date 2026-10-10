@@ -8,8 +8,15 @@
 # constructors (Metal/CPU/BLAS) survive — the same trick upstream uses. Metal
 # shaders are embedded (GGML_METAL_EMBED_LIBRARY), so no runtime .metallib.
 #
+# Local patches: every scripts/patches/llama.cpp/*.patch is applied, in name
+# order, on top of the pristine pinned tag. See the "patches" block below for
+# how a cached .build-llama is kept honest about which set it carries.
+#
 # Output: Vendor/llama.xcframework (+ Vendor/llama.xcframework.sha256).
 # Requires: full Xcode, cmake (brew install cmake), libtool.
+#
+#   --check   build nothing: exit 0 if Vendor/llama.xcframework was built from
+#             this checkout's tag + patches, 1 if not (make-app.sh asks first).
 
 set -euo pipefail
 
@@ -18,6 +25,41 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR="$ROOT/Vendor"
 DEPLOY_TARGET="14.0"
 
+# The patch set this checkout wants. PATCH_ID is the tag plus a hash of the exact
+# bytes of that set. It goes two places: on the cached clone, to know what its
+# tree was last brought to (below), and into the finished framework's Info.plist,
+# so anything that bundles the framework can tell whether it was built from THIS
+# set. Vendor/llama.xcframework is gitignored: a merge changes the patches and
+# leaves an old framework behind, silently carrying the bug the patch fixed.
+PATCH_DIR="$ROOT/scripts/patches/llama.cpp"
+PATCHES=()
+for p in "$PATCH_DIR"/*.patch; do
+  if [[ -f "$p" ]]; then PATCHES+=("$p"); fi
+done
+if [[ ${#PATCHES[@]} -gt 0 ]]; then
+  PATCH_ID="$LLAMA_TAG $(cat "${PATCHES[@]}" | shasum -a 256 | cut -d' ' -f1)"
+else
+  PATCH_ID="$LLAMA_TAG none"
+fi
+PATCH_KEY="WhisprBroPatchID"
+FW_PLIST="$VENDOR/llama.xcframework/macos-arm64/llama.framework/Resources/Info.plist"
+
+if [[ "${1:-}" == "--check" ]]; then
+  [[ -f "$FW_PLIST" ]] || { echo "missing $VENDOR/llama.xcframework -- run scripts/build-llama-xcframework.sh" >&2; exit 1; }
+  HAVE="$(/usr/libexec/PlistBuddy -c "Print :$PATCH_KEY" "$FW_PLIST" 2>/dev/null || true)"
+  if [[ "$HAVE" != "$PATCH_ID" ]]; then
+    if [[ -n "$HAVE" ]]; then HAVE="${HAVE:0:22}..."; else HAVE="(none: built before patches were recorded)"; fi
+    echo "Vendor/llama.xcframework was not built from this checkout's llama.cpp patches:" >&2
+    echo "  framework: $HAVE" >&2
+    echo "  checkout:  ${PATCH_ID:0:22}..." >&2
+    echo "run scripts/build-llama-xcframework.sh (incremental: only the patched files rebuild)" >&2
+    exit 1
+  fi
+  echo "llama.cpp $LLAMA_TAG + ${#PATCHES[@]} local patch(es): framework matches scripts/patches/llama.cpp"
+  exit 0
+fi
+[[ $# -eq 0 ]] || { echo "usage: $0 [--check]" >&2; exit 2; }
+
 command -v cmake >/dev/null || { echo "cmake not found (brew install cmake)" >&2; exit 1; }
 command -v xcodebuild >/dev/null || { echo "Xcode required" >&2; exit 1; }
 
@@ -25,7 +67,11 @@ command -v xcodebuild >/dev/null || { echo "Xcode required" >&2; exit 1; }
 WORK="$ROOT/.build-llama"
 SRC="$WORK/llama.cpp"
 STAMP="$WORK/.tag"
+PATCH_STAMP="$WORK/.patches"
 mkdir -p "$WORK"
+# $SRC sits inside this checkout. If its .git were ever unusable, git would walk
+# up and `reset --hard` / `clean` the OUTER repo -- so it may not.
+export GIT_CEILING_DIRECTORIES="$WORK"
 
 # Wipe the cache if the pinned tag changed, so a bump never reuses stale source
 # or a stale cmake configure.
@@ -40,8 +86,49 @@ if [[ ! -d "$SRC/.git" ]]; then
   rm -rf "$SRC"
   git clone --depth 1 --branch "$LLAMA_TAG" https://github.com/ggml-org/llama.cpp "$SRC"
   echo "$LLAMA_TAG" > "$STAMP"
+  # Pristine, whatever the stamp of the clone it replaces says.
+  rm -f "$PATCH_STAMP"
 else
   echo "== reusing clone at $SRC (tag $LLAMA_TAG)"
+fi
+
+# --- patches ----------------------------------------------------------------
+# PATCH_STAMP records PATCH_ID, the tag plus a hash of the exact bytes of the
+# patch set, that the tree in $SRC was last brought to. Fresh clone, a cache from
+# before a patch existed, an edited patch, a run killed half way: none of them
+# match, so the tree is reset to the pristine tag and the WHOLE set is applied
+# again. The result is always "tag + exactly these patches" -- never unpatched,
+# never stacked. A matching stamp is a no-op: the files keep their mtimes and
+# cmake rebuilds nothing. (A patch that stops applying -- upstream fixed it, or
+# the tag moved under it -- fails loudly here; drop or port it.)
+#
+# A stamp says where the tree was taken, not that it is still there: a clone
+# redone by hand, `git checkout -- .`. So a matching stamp is believed only if
+# every patch still reverse-applies, i.e. is really in the tree. (Patches that
+# edit each other's lines would fail that and be re-applied on every run: slower,
+# never wrong.)
+patches_in_tree() {
+  local p
+  for p in ${PATCHES[@]+"${PATCHES[@]}"}; do
+    git -C "$SRC" apply --reverse --check "$p" >/dev/null 2>&1 || return 1
+  done
+}
+
+if [[ "$(cat "$PATCH_STAMP" 2>/dev/null || true)" == "$PATCH_ID" ]] && patches_in_tree; then
+  echo "== llama.cpp patches already applied (${#PATCHES[@]})"
+else
+  git -C "$SRC" rev-parse -q --verify "refs/tags/$LLAMA_TAG^{commit}" >/dev/null \
+    || { echo "cached clone at $SRC is not $LLAMA_TAG -- delete $WORK and re-run" >&2; exit 1; }
+  echo "== resetting llama.cpp to $LLAMA_TAG, applying ${#PATCHES[@]} patch(es)"
+  rm -f "$PATCH_STAMP"
+  git -C "$SRC" reset -q --hard "refs/tags/$LLAMA_TAG"
+  git -C "$SRC" clean -qfd
+  # ${PATCHES[@]+...} guards empty-array expansion under `set -u` on bash 3.2.
+  for p in ${PATCHES[@]+"${PATCHES[@]}"}; do
+    echo "   $(basename "$p")"
+    git -C "$SRC" apply "$p"
+  done
+  echo "$PATCH_ID" > "$PATCH_STAMP"
 fi
 
 if [[ ! -f "$WORK/build/CMakeCache.txt" ]]; then
@@ -122,6 +209,7 @@ cat > "$FW/Versions/A/Resources/Info.plist" <<EOF
   <key>CFBundlePackageType</key><string>FMWK</string>
   <key>CFBundleVersion</key><string>$LLAMA_TAG</string>
   <key>MinimumOSVersion</key><string>$DEPLOY_TARGET</string>
+  <key>$PATCH_KEY</key><string>$PATCH_ID</string>
 </dict></plist>
 EOF
 
@@ -142,4 +230,4 @@ echo "== recording checksum"
   && shasum -a 256 llama.xcframework.zip | tee llama.xcframework.sha256 \
   && rm -f llama.xcframework.zip)
 
-echo "done: $VENDOR/llama.xcframework (llama.cpp $LLAMA_TAG)"
+echo "done: $VENDOR/llama.xcframework (llama.cpp $LLAMA_TAG + ${#PATCHES[@]} local patch(es))"

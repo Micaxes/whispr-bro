@@ -92,8 +92,9 @@ struct SettingsSheet: View {
         } header: {
             header("Auto-Clean")
         } footer: {
-            footer("Deterministic cleanup only on iOS for now — filler removal plus light "
-                + "punctuation. On-device AI formatting arrives in a later phase.")
+            footer("Deterministic cleanup only on iOS for now — filler removal, repeats and "
+                + "spoken self-corrections (English) plus light punctuation. On-device AI "
+                + "formatting arrives in a later phase.")
         }
         .listRowBackground(Brand.raised)
     }
@@ -101,8 +102,8 @@ struct SettingsSheet: View {
     private func subtitle(for level: AppConfig.Cleanup.Level) -> String {
         switch level {
         case .verbatim: "Exactly what you said, dictionary only"
-        case .fillers: "Strip \u{201C}um\u{201D}/\u{201C}uh\u{201D} + tidy punctuation"
-        case .standard: "Same as Fillers on iOS (corrections need the AI stage)"
+        case .fillers: "Strip \u{201C}um\u{201D}/\u{201C}uh\u{201D}, repeats, cut-off words + tidy punctuation"
+        case .standard: "Also resolve spoken corrections (\u{201C}Friday, no wait, Saturday\u{201D})"
         }
     }
 

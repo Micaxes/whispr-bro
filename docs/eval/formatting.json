@@ -1,0 +1,523 @@
+[
+  {
+    "id": "cmd-newline-list",
+    "raw": "buy milk new line buy eggs new line buy bread",
+    "gold": "Buy milk\nBuy eggs\nBuy bread.",
+    "tags": [
+      "command",
+      "line-break"
+    ]
+  },
+  {
+    "id": "cmd-paragraph",
+    "raw": "okay so the plan is simple new paragraph we start with the pilot and then expand next quarter",
+    "gold": "Okay, so the plan is simple.\n\nWe start with the pilot and then expand next quarter.",
+    "tags": [
+      "command",
+      "paragraph"
+    ]
+  },
+  {
+    "id": "cmd-paragraph-letter",
+    "raw": "hi marco new paragraph thanks for the update i will review it tonight and get back to you tomorrow",
+    "gold": "Hi Marco.\n\nThanks for the update. I will review it tonight and get back to you tomorrow.",
+    "tags": [
+      "command",
+      "paragraph",
+      "mail"
+    ]
+  },
+  {
+    "id": "cmd-bullets",
+    "raw": "bullet point finish the deck bullet point call marco bullet point book the flights",
+    "gold": "- Finish the deck\n- Call Marco\n- Book the flights",
+    "tags": [
+      "command",
+      "bullet"
+    ]
+  },
+  {
+    "id": "cmd-bullets-next",
+    "raw": "bullet point ship the build next bullet write the release note next bullet tell the team",
+    "gold": "- Ship the build\n- Write the release note\n- Tell the team",
+    "tags": [
+      "command",
+      "bullet"
+    ]
+  },
+  {
+    "id": "quote-and-i-quote",
+    "raw": "he said and i quote we are not shipping until it is right unquote",
+    "gold": "He said \"we are not shipping until it is right.\"",
+    "tags": [
+      "command",
+      "quote"
+    ]
+  },
+  {
+    "id": "quote-open-close",
+    "raw": "the sign said open quote no entry close quote so we turned around",
+    "gold": "The sign said \"no entry\" so we turned around.",
+    "tags": [
+      "command",
+      "quote"
+    ]
+  },
+  {
+    "id": "quote-then-break",
+    "raw": "she said and i quote ship it unquote new line then she left the room",
+    "gold": "She said \"ship it.\"\nThen she left the room.",
+    "tags": [
+      "command",
+      "quote",
+      "line-break"
+    ]
+  },
+  {
+    "id": "control-line-of-credit",
+    "raw": "they offered me a new line of credit last week",
+    "gold": "They offered me a new line of credit last week.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-bullet-noun",
+    "raw": "the bullet point i made in the meeting was ignored",
+    "gold": "The bullet point I made in the meeting was ignored.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-paragraph-noun",
+    "raw": "every new paragraph needs a topic sentence",
+    "gold": "Every new paragraph needs a topic sentence.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-prose-options",
+    "raw": "so there are two options we could either ship it friday which is risky or we wait until monday and do it properly",
+    "gold": "So there are two options: either ship it Friday, which is risky, or we wait until Monday and do it properly.",
+    "tags": [
+      "control",
+      "prose"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-prose-three-things",
+    "raw": "we need three things a laptop a charger and a dongle",
+    "gold": "We need three things: a laptop, a charger, and a dongle.",
+    "tags": [
+      "control",
+      "prose"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-quote-verb",
+    "raw": "he quoted the price at fifteen hundred dollars",
+    "gold": "He quoted the price at fifteen hundred dollars.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "infer-enumerated-ordinals",
+    "raw": "i need to do three things today first finish the deck second call marco and third book the flights",
+    "gold": "I need to do three things today:\n1. Finish the deck\n2. Call Marco\n3. Book the flights",
+    "tags": [
+      "inferred",
+      "opt-in"
+    ],
+    "policy": "inferring"
+  },
+  {
+    "id": "infer-enumerated-cardinals",
+    "raw": "the steps are one clone the repo two run the install script three open the app",
+    "gold": "The steps are:\n1. Clone the repo\n2. Run the install script\n3. Open the app",
+    "tags": [
+      "inferred",
+      "opt-in"
+    ],
+    "policy": "inferring"
+  },
+  {
+    "id": "itn-address",
+    "raw": "my address is forty two maple street apartment three b",
+    "gold": "My address is 42 Maple Street, apartment 3B.",
+    "tags": [
+      "itn",
+      "not-built"
+    ]
+  },
+  {
+    "id": "itn-money-time",
+    "raw": "it costs fifteen hundred dollars and we meet at half past four",
+    "gold": "It costs $1,500 and we meet at 4:30.",
+    "tags": [
+      "itn",
+      "not-built"
+    ]
+  },
+  {
+    "id": "control-count-weeks-engineers",
+    "raw": "we need one more week for qa two more engineers for the port and three days of buffer",
+    "gold": "We need one more week for QA, two more engineers for the port, and three days of buffer.",
+    "tags": [
+      "control",
+      "counting"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-count-losses",
+    "raw": "we lost one deal last quarter two people quit and three customers churned",
+    "gold": "We lost one deal last quarter, two people quit, and three customers churned.",
+    "tags": [
+      "control",
+      "counting"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-bullet-verb",
+    "raw": "can you bullet point that for me before the board call",
+    "gold": "Can you bullet point that for me before the board call.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-new-line-as-name",
+    "raw": "the product they launched is called new line and it competes with us",
+    "gold": "The product they launched is called New Line and it competes with us.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "cmd-start-a-new-paragraph",
+    "raw": "okay so the plan is simple start a new paragraph we begin with the pilot in march",
+    "gold": "Okay, so the plan is simple: start a new paragraph. We begin with the pilot in March.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "unsupported-phrase"
+    ],
+    "note": "UNSUPPORTED BY DESIGN: 'start a new paragraph' carries its own determiner, which blinds the guard. Say 'new paragraph'. See docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "cmd-repeated-marker",
+    "raw": "new line buy milk new line buy eggs",
+    "gold": "Buy milk\nBuy eggs.",
+    "tags": [
+      "command",
+      "line-break"
+    ]
+  },
+  {
+    "id": "cmd-connective-before-break",
+    "raw": "thanks for the update and new paragraph i will review it tonight",
+    "gold": "Thanks for the update.\n\nI will review it tonight.",
+    "tags": [
+      "command",
+      "paragraph"
+    ],
+    "note": "KNOWN GAP: the connective is kept (deleting 'or' changed his meaning), so this fails by design — see docs/formatting-benchmark.md §4"
+  },
+  {
+    "id": "quote-bare-quote-unquote",
+    "raw": "he said quote we are not shipping until it is right unquote",
+    "gold": "He said, \"We are not shipping until it is right,\" unquote.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "unsupported-phrase"
+    ],
+    "note": "UNSUPPORTED BY DESIGN: bare 'quote' is an ordinary verb. Say 'and I quote' or 'open quote'."
+  },
+  {
+    "id": "quote-already-terminated",
+    "raw": "he said and i quote we are done unquote",
+    "gold": "He said \"we are done.\"",
+    "tags": [
+      "command",
+      "quote"
+    ]
+  },
+  {
+    "id": "control-lowercase-command",
+    "raw": "npm install keeps failing on the ci box can you take a look at it today",
+    "gold": "npm install keeps failing on the ci box. Can you take a look at it today?",
+    "tags": [
+      "control",
+      "casing"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "punct-code-semicolon",
+    "raw": "let x = 1; new line let y = 2",
+    "gold": "let x = 1;\nlet y = 2",
+    "tags": [
+      "control",
+      "punctuation"
+    ],
+    "register": "ide"
+  },
+  {
+    "id": "punct-abbreviation",
+    "raw": "call me at 5 p.m. new line bring the deck",
+    "gold": "Call me at 5 p.m.\nBring the deck.",
+    "tags": [
+      "control",
+      "punctuation"
+    ]
+  },
+  {
+    "id": "punct-his-own-stop",
+    "raw": "the meeting is at noon. new line bring the deck",
+    "gold": "The meeting is at noon.\nBring the deck.",
+    "tags": [
+      "control",
+      "punctuation"
+    ]
+  },
+  {
+    "id": "punct-ellipsis",
+    "raw": "wait... new line maybe not",
+    "gold": "Wait...\nMaybe not.",
+    "tags": [
+      "control",
+      "punctuation"
+    ]
+  },
+  {
+    "id": "cmd-after-pronoun",
+    "raw": "call me new line then text me",
+    "gold": "Call me\nThen text me.",
+    "tags": [
+      "command",
+      "line-break"
+    ]
+  },
+  {
+    "id": "cmd-after-for-me",
+    "raw": "that works for me new paragraph lets do it",
+    "gold": "That works for me.\n\nLet's do it.",
+    "tags": [
+      "command",
+      "paragraph"
+    ]
+  },
+  {
+    "id": "punct-colon-kept",
+    "raw": "here is the plan: new line ship it friday",
+    "gold": "Here is the plan:\nShip it Friday.",
+    "tags": [
+      "control",
+      "punctuation"
+    ]
+  },
+  {
+    "id": "punct-semicolon-kept",
+    "raw": "the deal closed; new line we start monday",
+    "gold": "The deal closed;\nWe start monday.",
+    "tags": [
+      "control",
+      "punctuation"
+    ]
+  },
+  {
+    "id": "punct-comma-kept",
+    "raw": "buy milk, new line buy eggs",
+    "gold": "Buy milk,\nBuy eggs.",
+    "tags": [
+      "control",
+      "punctuation"
+    ]
+  },
+  {
+    "id": "control-or-before-break",
+    "raw": "we could ship it friday or new line we could wait until monday",
+    "gold": "We could ship it friday or\nWe could wait until monday.",
+    "tags": [
+      "control",
+      "connective"
+    ]
+  },
+  {
+    "id": "control-capitalize-make",
+    "raw": "make sure to send the invoice today",
+    "gold": "Make sure to send the invoice today.",
+    "tags": [
+      "control",
+      "casing"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "known-fail-marker-as-noun",
+    "raw": "the markdown renderer eats new line characters in the export",
+    "gold": "The markdown renderer eats new line characters in the export.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail"
+    ],
+    "note": "KNOWN FAIL: a marker inside a noun phrase with no determiner in front of it. Separating this from a real command needs a parser, not a word list — six review rounds established that. See docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "known-fail-marker-discussed",
+    "raw": "i asked you new paragraph or new line and you said neither",
+    "gold": "I asked you new paragraph or new line and you said neither.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail"
+    ],
+    "note": "KNOWN FAIL: a sentence about the markers themselves."
+  },
+  {
+    "id": "control-quote-as-verb",
+    "raw": "please quote the new price and then unquote the old one",
+    "gold": "Please quote the new price, and then unquote the old one.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-quote-verb-future",
+    "raw": "i will quote the terms in the email and then end quote",
+    "gold": "I will quote the terms in the email and then end quote.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "control-slack-newline",
+    "raw": "in slack shift enter gives you new line",
+    "gold": "In Slack, shift+Enter gives you a new line.",
+    "tags": [
+      "control",
+      "literal-phrase"
+    ],
+    "mustNotRestructure": true
+  },
+  {
+    "id": "mention-ndjson",
+    "raw": "the api returns new line delimited json so the parser is simple",
+    "gold": "The API returns new line delimited JSON so the parser is simple.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail",
+      "marker-mention"
+    ],
+    "note": "KNOWN FAIL: the marker is MENTIONED, not commanded, and no determiner touches it. This whole class fails — see docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "mention-csv",
+    "raw": "avoid new line characters inside the csv field or the import breaks",
+    "gold": "Avoid new line characters inside the CSV field or the import breaks.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail",
+      "marker-mention"
+    ],
+    "note": "KNOWN FAIL: the marker is MENTIONED, not commanded, and no determiner touches it. This whole class fails — see docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "mention-macro",
+    "raw": "she typed new line instead of pressing enter and it broke the macro",
+    "gold": "She typed new line instead of pressing enter and it broke the macro.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail",
+      "marker-mention"
+    ],
+    "note": "KNOWN FAIL: the marker is MENTIONED, not commanded, and no determiner touches it. This whole class fails — see docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "mention-deck",
+    "raw": "the deck needs bullet point formatting not paragraphs",
+    "gold": "The deck needs bullet point formatting not paragraphs.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail",
+      "marker-mention"
+    ],
+    "note": "KNOWN FAIL: the marker is MENTIONED, not commanded, and no determiner touches it. This whole class fails — see docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "mention-summaries",
+    "raw": "marco wants bullet point summaries for every section of the report",
+    "gold": "Marco wants bullet point summaries for every section of the report.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail",
+      "marker-mention"
+    ],
+    "note": "KNOWN FAIL: the marker is MENTIONED, not commanded, and no determiner touches it. This whole class fails — see docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "mention-styleguide",
+    "raw": "our style guide bans bullet point fragments in customer facing docs",
+    "gold": "Our style guide bans bullet point fragments in customer facing docs.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail",
+      "marker-mention"
+    ],
+    "note": "KNOWN FAIL: the marker is MENTIONED, not commanded, and no determiner touches it. This whole class fails — see docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "mention-docs",
+    "raw": "google docs handles new paragraph spacing better than word does",
+    "gold": "Google Docs handles new paragraph spacing better than Word does.",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail",
+      "marker-mention"
+    ],
+    "note": "KNOWN FAIL: the marker is MENTIONED, not commanded, and no determiner touches it. This whole class fails — see docs/formatting-benchmark.md §3."
+  },
+  {
+    "id": "mention-markdown",
+    "raw": "does markdown need new line characters at the end of the file",
+    "gold": "Does markdown need new line characters at the end of the file?",
+    "tags": [
+      "control",
+      "literal-phrase",
+      "known-fail",
+      "marker-mention"
+    ],
+    "note": "KNOWN FAIL: the marker is MENTIONED, not commanded, and no determiner touches it. This whole class fails — see docs/formatting-benchmark.md §3."
+  }
+]

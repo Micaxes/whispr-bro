@@ -8,6 +8,19 @@ final class AppCategoryTests: XCTestCase {
         XCTAssertEqual(AppCategoryResolver.category(bundleId: "com.apple.Safari"), .browser)
         XCTAssertEqual(AppCategoryResolver.category(bundleId: "com.microsoft.VSCode"), .ide)
         XCTAssertEqual(AppCategoryResolver.category(bundleId: "com.apple.Terminal"), .terminal)
+        // Every shell must resolve: since SpokenStructure, an unrecognised
+        // terminal would accept a spoken line break, and a newline in a shell
+        // is Return — it RUNS the half-typed command.
+        for shell in ["com.mitchellh.ghostty", "dev.warp.Warp-Stable", "org.alacritty", "io.alacritty",
+                      "co.zeit.hyper", "com.eugeny.tabby", "com.googlecode.iterm2",
+                      "com.github.wez.wezterm", "net.kovidgoyal.kitty"] {
+            XCTAssertEqual(AppCategoryResolver.category(bundleId: shell), .terminal, shell)
+        }
+        // …and an unrecognised editor would take bullets into source code.
+        for editor in ["com.todesktop.230313mzl4w4u92", "com.exafunction.windsurf",
+                       "com.microsoft.VSCode", "dev.zed.Zed", "com.apple.dt.Xcode"] {
+            XCTAssertEqual(AppCategoryResolver.category(bundleId: editor), .ide, editor)
+        }
         XCTAssertEqual(AppCategoryResolver.category(bundleId: "md.obsidian"), .notes)
     }
 

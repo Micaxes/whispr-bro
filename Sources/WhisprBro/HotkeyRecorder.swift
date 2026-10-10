@@ -151,21 +151,37 @@ struct ShortcutsSettingsView: View {
                                 Text(action.subtitle).font(Brand.sans(12)).foregroundStyle(Brand.bodyMuted)
                             }
                             Spacer(minLength: 12)
-                            HotkeyRecorderButton(
-                                action: action,
-                                binding: config.bindings(for: action).first
-                            ) { update(action, $0) }
-                            // Slot is always reserved so the keycaps stay
-                            // column-aligned across bound/unbound rows.
-                            Button { remove(action) } label: {
+                            if action == .handsFree {
+                                // Not independently bindable: it IS the dictate
+                                // key, double-tapped. A separate recorder here
+                                // let the two drift apart, and hands-free then
+                                // existed on neither key.
+                                BrandKeycap(
+                                    text: config.bindings(for: .handsFree).first
+                                        .map { "\($0.displayString) ×2" } ?? "—",
+                                    active: false)
+                                    .opacity(0.65)
                                 Image(systemName: "xmark.circle.fill")
                                     .font(.system(size: 13, weight: .medium))
                                     .foregroundStyle(Brand.mist)
+                                    .opacity(0)
+                            } else {
+                                HotkeyRecorderButton(
+                                    action: action,
+                                    binding: config.bindings(for: action).first
+                                ) { update(action, $0) }
+                                // Slot is always reserved so the keycaps stay
+                                // column-aligned across bound/unbound rows.
+                                Button { remove(action) } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(Brand.mist)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Remove this shortcut")
+                                .opacity(config.bindings(for: action).isEmpty ? 0 : 1)
+                                .disabled(config.bindings(for: action).isEmpty)
                             }
-                            .buttonStyle(.plain)
-                            .help("Remove this shortcut")
-                            .opacity(config.bindings(for: action).isEmpty ? 0 : 1)
-                            .disabled(config.bindings(for: action).isEmpty)
                         }
                         .padding(.horizontal, 8).padding(.vertical, 8)
                     }
@@ -176,20 +192,23 @@ struct ShortcutsSettingsView: View {
                     .buttonStyle(.plain).font(Brand.sans(12, .medium)).foregroundStyle(Brand.ink)
                 Spacer()
             }
-            BrandCaption("Dictate / Hands-free / Command use bare modifiers; Cancel / Paste / Copy use a key chord. Command mode edits the selected text and needs the formatting model. Bound keys still reach the focused app (listen-only tap), so avoid productive keys.")
+            BrandCaption("Dictate / Command use bare modifiers; Cancel / Paste / Copy use a key chord. Hands-free has no key of its own — it is a double-tap of whatever Dictate is bound to. Command mode edits the selected text and needs the formatting model. Bound keys still reach the focused app (listen-only tap), so avoid productive keys.")
         }
     }
 
     private func update(_ action: HotkeyAction, _ binding: HotkeyBinding) {
         var entries = config.entries.filter { $0.action != action }
         entries.append(.init(action, binding))
-        config = HotkeyConfig(entries: entries)
-        config.save()
-        pipeline.reloadHotkeys(config)
+        // normalized(): rebinding Dictate carries hands-free with it.
+        apply(HotkeyConfig(entries: entries).normalized())
     }
 
     private func remove(_ action: HotkeyAction) {
-        config = HotkeyConfig(entries: config.entries.filter { $0.action != action })
+        apply(HotkeyConfig(entries: config.entries.filter { $0.action != action }).normalized())
+    }
+
+    private func apply(_ next: HotkeyConfig) {
+        config = next
         config.save()
         pipeline.reloadHotkeys(config)
     }

@@ -20,14 +20,19 @@ VERSION="$(tr -d '[:space:]' < "$ROOT/VERSION" 2>/dev/null || true)"
 [[ -n "$VERSION" ]] || VERSION="0.0.0"
 echo "version: $VERSION"
 
+FRAMEWORK="$ROOT/Vendor/llama.xcframework/macos-arm64/llama.framework"
+[[ -d "$FRAMEWORK" ]] || { echo "missing $FRAMEWORK — run scripts/build-llama-xcframework.sh" >&2; exit 1; }
+# The framework is gitignored, so pulling a change to scripts/patches/llama.cpp
+# leaves the old one in place — and it would be bundled without a word, bug and
+# all. It records which patches it was built from; refuse one that is not these.
+# Before the build, not after: there is no point linking against it.
+"$ROOT/scripts/build-llama-xcframework.sh" --check
+
 echo "building release…"
 swift build -c release --package-path "$ROOT"
 
 BIN="$ROOT/.build/release/WhisprBro"
 [[ -x "$BIN" ]] || { echo "build product missing: $BIN" >&2; exit 1; }
-
-FRAMEWORK="$ROOT/Vendor/llama.xcframework/macos-arm64/llama.framework"
-[[ -d "$FRAMEWORK" ]] || { echo "missing $FRAMEWORK — run scripts/build-llama-xcframework.sh" >&2; exit 1; }
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
@@ -108,6 +113,21 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<!-- whisprbro://open is how the running app asks SwiftUI to create its own
+	     window when it has no other way to (MainWindowOpener). It reads the
+	     scheme from here, so this is the one place it is declared. Same scheme
+	     as the iOS app's router (ios/App-Info.plist). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.micaxes.whispr-bro</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>whisprbro</string>
+			</array>
+		</dict>
+	</array>
 	<key>ATSApplicationFontsPath</key>
 	<string>Fonts</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -11,7 +11,7 @@ struct WhisprBroApp: App {
         MenuBarExtra {
             MenuBarView(pipeline: pipeline)
         } label: {
-            menuBarLabel
+            MenuBarLabel(pipeline: pipeline)
         }
         .menuBarExtraStyle(.menu)
 
@@ -28,11 +28,27 @@ struct WhisprBroApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentMinSize)
         .defaultSize(width: 980, height: 660)
+        // `whisprbro://open` (see MainWindowOpener) creates this window even
+        // when no view exists to ask for it.
+        .handlesExternalEvents(matching: MainWindowOpener.externalEvents)
+    }
+}
+
+/// Menu-bar mark: the echo-w brand glyph (a tinted template image that adapts
+/// to the menu bar), or a warning triangle when something needs attention.
+///
+/// It is also the one view that belongs to the status item rather than to the
+/// menu (whose content is not run until the menu is opened) — which is why it
+/// is where `MainWindowOpener` gets its `openWindow` action.
+private struct MenuBarLabel: View {
+    @ObservedObject var pipeline: PipelineController
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        glyph.onAppear { MainWindowOpener.shared.capture(openWindow) }
     }
 
-    /// Menu-bar mark: the echo-w brand glyph (a tinted template image that adapts
-    /// to the menu bar), or a warning triangle when something needs attention.
-    @ViewBuilder private var menuBarLabel: some View {
+    @ViewBuilder private var glyph: some View {
         switch pipeline.state {
         case .needsPermissions, .modelsMissing, .error:
             Image(systemName: "exclamationmark.triangle")
@@ -47,6 +63,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppIconVariant.selected.applyToDock()   // restore the chosen Dock icon
         PipelineController.shared.startup()
         UpdateModel.shared.startup()            // on-by-default, out-of-process update check
+        MenuBarWatch.shared.startup(pipeline: PipelineController.shared)   // is the icon hidden behind the notch?
+    }
+
+    /// Launched again while already running (Spotlight, Finder, Raycast,
+    /// `open -a`, a Dock click): open the window. Not sent for the first launch,
+    /// so a login launch stays silent. `hasVisibleWindows` is ignored on purpose
+    /// — with the window already up, the right answer is to raise it. `false`:
+    /// nothing is left for the default handler to do.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        MainWindowOpener.shared.open()
+        return false
+    }
+
+    /// `whisprbro://open`, from the app itself (MainWindowOpener's second path)
+    /// or from anything else that opens it. SwiftUI creates the window; an
+    /// accessory app still has to be made focusable to show it properly.
+    /// Only for that URL: any other (the iOS app's router shares the scheme, and
+    /// `open -a` takes files) gets no window, and making the app focusable for
+    /// nothing leaves a Dock icon with nothing behind it.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard urls.contains(where: MainWindowOpener.isOpenURL) else { return }
+        ActivationPolicy.activate()
     }
 
     /// Defer termination so GPU-backed models are freed first (ggml-metal
@@ -89,12 +127,14 @@ enum ActivationPolicy {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// A real window is up (the HUD and other panels don't count).
+    @MainActor static var hasStandardWindow: Bool {
+        NSApp.windows.contains { $0.isVisible && $0.canBecomeMain && !($0 is NSPanel) }
+    }
+
     @MainActor static func deactivateIfNoWindows() {
         // Defer a tick so the closing window is gone from NSApp.windows.
         DispatchQueue.main.async {
-            let hasStandardWindow = NSApp.windows.contains {
-                $0.isVisible && $0.canBecomeMain && !($0 is NSPanel)
-            }
             if !hasStandardWindow {
                 NSApp.setActivationPolicy(.accessory)
             }

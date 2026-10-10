@@ -2,6 +2,47 @@ import XCTest
 @testable import WhisprBroCore
 
 final class TextFormatterTests: XCTestCase {
+    // MARK: - Long-utterance ceiling
+
+    /// A hands-free dictation can now run for minutes, and the LLM stage is
+    /// only measured up to 150 words. Over the ceiling it must be SKIPPED — not
+    /// attempted and timed out into, which is how a paraphrase reaches the
+    /// cursor: a 450-word dictation came back as 121 words, a 0.27 shrink that
+    /// the live gate's 0.25 floor lets through.
+    func testOverTheCeilingSkipsTheModelAndKeepsEveryWord() async {
+        let limit = TextFormatter.Config().llmWordLimit
+        let words = (1...(limit + 50)).map { "word\($0)" }
+        let raw = words.joined(separator: " ")
+
+        let formatter = TextFormatter(engine: LlamaCppEngine(
+            modelPath: URL(fileURLWithPath: "/nonexistent.gguf"),
+            promptBuilder: PromptBuilder(family: .qwen, systemPrompt: "")))
+        let result = await formatter.formatDetailed(raw, rawMode: false)
+
+        XCTAssertEqual(result.source, .fallback(.tooLong))
+        XCTAssertNil(result.rejected)
+        // Rule-based cleanup only: every spoken word survives, in order.
+        XCTAssertEqual(
+            result.text.split(whereSeparator: \.isWhitespace).count, words.count,
+            "the rules path may never change the word count")
+        XCTAssertTrue(result.text.lowercased().hasPrefix("word1 word2"))
+        XCTAssertTrue(result.text.contains("word\(words.count)"))
+    }
+
+    /// The boundary: exactly at the ceiling still goes to the model, so the
+    /// eval set's longest fixture (latency-150) keeps measuring the model path.
+    func testAtTheCeilingStillTakesTheModelPath() async {
+        let limit = TextFormatter.Config().llmWordLimit
+        let raw = (1...limit).map { "word\($0)" }.joined(separator: " ")
+        let formatter = TextFormatter(engine: LlamaCppEngine(
+            modelPath: URL(fileURLWithPath: "/nonexistent.gguf"),
+            promptBuilder: PromptBuilder(family: .qwen, systemPrompt: "")))
+        let result = await formatter.formatDetailed(raw, rawMode: false)
+        // No model is loaded here, so it lands on `.unavailable` — the point is
+        // that it is NOT `.tooLong`: the ceiling did not claim this one.
+        XCTAssertEqual(result.source, .fallback(.unavailable))
+    }
+
     // MARK: - Output sanitizer
 
     func testSanitizeStripsOnlyAllowlistedPreambles() {
@@ -240,47 +281,69 @@ final class TextFormatterTests: XCTestCase {
         XCTAssertNil(TextFormatter.plausibleReformatting(runaway, of: input))
     }
 
-    func testPlausibleRejectsOverShrunkOutput() {
+    func testPlausibleNoLongerJudgesSHRINKAGE() {
+        // The band's lower bound is gone: a resolved self-correction IS a
+        // shrink, and no length test tells it from an over-edit. Over-editing
+        // is what the benchmark scores (`ContentGuard` keeps the collapse
+        // rule on `.bench`) and what the register wording fixes; refusing it
+        // here handed the user the unresolved raw.
         let input = "so the quarterly report shows revenue grew twelve percent but we need "
             + "to double check the churn numbers before presenting them on thursday"
-        XCTAssertNil(TextFormatter.plausibleReformatting("Revenue grew.", of: input))
-    }
-
-    func testPlausibleShortInputAbsoluteAllowance() {
-        // 7 words → 3 words is 0.43× (under the ratio floor) but within the
-        // ±4-word allowance that keeps the band meaningful on short inputs.
-        // (Growth cases now die on the no-new-content-words check instead,
-        // so the allowance matters for shrinkage — resolved corrections.)
+        XCTAssertEqual(TextFormatter.plausibleReformatting("Revenue grew.", of: input), "Revenue grew.")
         XCTAssertEqual(
             TextFormatter.plausibleReformatting(
                 "Send it Tuesday.", of: "send it monday no wait tuesday please"),
             "Send it Tuesday.")
-        // Beyond the allowance still fails.
-        XCTAssertNil(TextFormatter.plausibleReformatting(
-            "Send it.", of: "send it monday no wait tuesday please thanks"))
     }
 
-    func testPlausibleRejectsIntroducedContentWords() {
-        // The reproduced FM failure: the model ANSWERED the dictation —
-        // single line and in-band, so every other check accepts it. "Yes" is
-        // a new content word; the gate must reject.
-        XCTAssertNil(TextFormatter.plausibleReformatting(
-            "Yes, it is done. Okay, let's go.", of: "is it done?. okay.. let's go"))
-        // One invented word rejects even when the rest is a faithful echo.
-        XCTAssertNil(TextFormatter.plausibleReformatting(
-            "Send the final report on Thursday.", of: "send the report on thursday"))
+    func testPlausibleNoLongerJudgesINTRODUCEDWords() {
+        // The no-new-content-words rule is gone: the prompt commissions
+        // homophone and split-word fixes, every exemption list written for
+        // them sanctioned the corruption direction too, and `ContentGuard`'s
+        // L6 (4 novel tokens on a ≥ 10-atom output) is the rule that
+        // survived. One new word lands.
+        XCTAssertEqual(
+            TextFormatter.plausibleReformatting(
+                "Send the final report on Thursday.", of: "send the report on thursday"),
+            "Send the final report on Thursday.")
+        // Four of them on a long enough output do not — and the verdict comes
+        // from the gate that owns content, never from this length rule.
+        XCTAssertEqual(
+            TextFormatter.gateModelOutput(
+                "Ship the improved production release candidate build tomorrow morning before standup.",
+                of: "ship the build tomorrow morning before the standup").reason,
+            "INVENTED (novel-count)")
     }
 
-    func testPlausibleAllowsNumericAndAllowlistedTimeTokens() {
-        // Number denormalization survives: "2:30" has no alphabetic core, so
-        // it never counts as an introduced content word.
+    func testPlausibleReadsTheSameLengthBandAsTheGuard() {
+        // The UPPER bound is `ContentGuard`'s, read off the same atoms: this
+        // rule may not hold a second, disagreeing opinion about length (it
+        // once had its own 1.6× over whitespace words, which made the
+        // shipping gate stricter than the grader on a band nobody could point
+        // at). 9 atoms in, 15 out — a repetition loop, refused:
+        let loop = "Ship the parser fix Friday. Ship the parser fix Friday. Ship the parser fix Friday."
+        XCTAssertNil(TextFormatter.plausibleReformatting(
+            loop, of: "ship the parser fix on friday before the freeze"))
+        XCTAssertEqual(
+            TextFormatter.implausibility(of: loop, input: "ship the parser fix on friday before the freeze"),
+            "15 atoms out of 9")
+        // …and L2's floor is real: under 6 atoms no length rule runs on
+        // either side of the gate. It costs nothing on-device, where an
+        // utterance that short never reaches the model (`fastPathWordLimit`).
+        XCTAssertEqual(TextFormatter.plausibleReformatting(
+            "Ship it Friday. Ship it Friday. Ship it Friday.", of: "ship it friday"),
+            "Ship it Friday. Ship it Friday. Ship it Friday.")
+    }
+
+    func testPlausibleAllowsNumberAndTimeDenormalization() {
+        // Number denormalization survives — nothing here reads word forms
+        // any more, so "2:30" and "3 p.m." are simply not this rule's
+        // business (`ContentGuard` checks their DIGITS against what he said).
         XCTAssertEqual(
             TextFormatter.plausibleReformatting(
                 "Let's meet at 2:30 tomorrow afternoon.",
                 of: "let's meet at two thirty tomorrow afternoon"),
             "Let's meet at 2:30 tomorrow afternoon.")
-        // a.m./p.m. forms are the one allowlisted introduction (the dotted
-        // variant compares equal after punctuation stripping).
         XCTAssertEqual(
             TextFormatter.plausibleReformatting(
                 "Meet me at 3 p.m. tomorrow.",
@@ -288,30 +351,19 @@ final class TextFormatterTests: XCTestCase {
             "Meet me at 3 p.m. tomorrow.")
     }
 
-    func testPlausibleAllowsSplitWordMerges() {
-        // The prompt sanctions merging split words; a hyphen join strips to
-        // the adjacent pair's concatenation, which is not "new" content
-        // (measured live: the FM stage hyphenated "double check").
-        XCTAssertEqual(
-            TextFormatter.plausibleReformatting(
-                "We need to double-check the churn numbers.",
-                of: "we need to double check the churn numbers"),
-            "We need to double-check the churn numbers.")
-        // A non-adjacent mashup is still an invented word.
-        XCTAssertNil(TextFormatter.plausibleReformatting(
-            "We need to doublenumbers check the churn.",
-            of: "we need to double check the churn numbers"))
-    }
-
     func testPlausibleAcceptsEverySeedGold() {
-        // The no-new-content-words rule must not catch legitimate transforms:
-        // every seed fixture's hand-authored gold, judged against the same
-        // stripped input the formatter sees, passes the gate.
+        // Every seed fixture's hand-authored gold, judged against the same
+        // stripped input the formatter sees, passes this half of the gate —
+        // except the `all-filler` fragment, whose gold is empty and whose
+        // refusal costs nothing (on-device the one-word fast path never
+        // consults the gate). The `asr-slip` golds used to fail here, on the
+        // introduced-word rule that is now deleted.
         let stripper = FillerStripper()
+        var rejected: [String] = []
         for c in EvalCase.seeds {
             let input = stripper.strip(c.raw)
-            XCTAssertNotNil(TextFormatter.plausibleReformatting(c.gold, of: input),
-                            "gate rejected the gold for seed '\(c.id)'")
+            if TextFormatter.plausibleReformatting(c.gold, of: input) == nil { rejected.append(c.id) }
         }
+        XCTAssertEqual(rejected, ["fragment-01"])
     }
 }

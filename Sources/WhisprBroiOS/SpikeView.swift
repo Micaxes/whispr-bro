@@ -410,7 +410,7 @@ final class SpikeRunner: ObservableObject {
                 fixture,
                 trim: vadAvailable ? { await self.vad.trim($0) } : nil,
                 dictionary: dict, stripper: stripper,
-                level: .fillers,
+                level: .fillers, language: language,
                 format: {
                     TextFormatter.ruleBasedCleanup($0, preserveCasingFor: dict.lowercasedTargets)
                 })

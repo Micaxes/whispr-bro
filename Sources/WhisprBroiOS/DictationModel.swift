@@ -94,6 +94,8 @@ final class DictationModel: ObservableObject {
     #endif
     private var dictionary = DictionaryEngine(rules: [])
     private var fillerStripper = FillerStripper()
+    /// `[cleanup] self_repair`: the self-repair rules on or off, as on macOS.
+    private var selfRepair = AppConfig.Cleanup().selfRepair
     private let modelDir: URL
     private let log = Logger(subsystem: "com.micaxes.whispr-bro.ios", category: "pipeline")
 
@@ -160,6 +162,11 @@ final class DictationModel: ObservableObject {
         // Open the history DB off-main so the first History-tab access doesn't
         // run the SQLite open + migration on the main thread.
         Task.detached { HistoryStore.prewarm() }
+        // The self-repair rules' on-device language models (~70 ms, once):
+        // loaded now, off-main, rather than inside the first dictation.
+        if dictationLanguage == .english {
+            Task.detached(priority: .utility) { SelfRepair.prewarm() }
+        }
         Task {
             await bringUp()
             #if DEBUG
@@ -333,6 +340,7 @@ final class DictationModel: ObservableObject {
         // Snapshot so a config reload mid-dictation can't make the
         // substitution and the filler pre-pass disagree.
         let dict = dictionary
+        let selfRepair = self.selfRepair
         // Self-correction: level=standard (iOS has no per-app verbatim
         // registers, so the level alone decides — cf. macOS PipelineController).
         let resolveCorr = cleanupLevel == .standard
@@ -342,6 +350,7 @@ final class DictationModel: ObservableObject {
             trim: vadAvailable ? { await self.vad.trim($0) } : nil,
             dictionary: dict, stripper: fillerStripper,
             level: cleanupLevel, verbatimRegister: false,
+            language: dictationLanguage, selfRepair: selfRepair,
             timings: timings,
             prepareFormatter: {
                 // Outside the measured format call, like macOS's LLM reload:
@@ -351,18 +360,19 @@ final class DictationModel: ObservableObject {
                 await self.fmFormatter.prewarm()
                 #endif
             },
-            format: { cleaned in
+            formatInput: { input in
                 // Stage 2 (phase i4): Foundation Models auto-edit. Never
                 // throws — unavailable model, timeout, or implausible output
                 // degrades to the rule-based result internally, so a
-                // dictation always lands.
+                // dictation always lands. The ceiling counts the dictation
+                // before the self-repair rules, as on macOS.
                 #if canImport(FoundationModels)
                 return await self.fmFormatter.format(
-                    cleaned, styleDirective: style,
+                    input.text, styleDirective: style,
                     preserveCasingFor: dict.lowercasedTargets,
-                    resolveCorrections: resolveCorr)
+                    resolveCorrections: resolveCorr, ceilingWords: input.ceilingWords)
                 #else
-                return TextFormatter.ruleBasedCleanup(cleaned, preserveCasingFor: dict.lowercasedTargets)
+                return TextFormatter.ruleBasedCleanup(input.text, preserveCasingFor: dict.lowercasedTargets)
                 #endif
             })
         else {
@@ -459,6 +469,7 @@ final class DictationModel: ObservableObject {
     /// to steer the per-app LLM register, which iOS doesn't have yet).
     private func applyConfig(_ config: AppConfig) {
         dictionary = DictionaryEngine(rules: config.dictionaryRules)
+        selfRepair = config.cleanup.selfRepair
         fillerStripper = FillerStripper(
             core: FillerStripper.coreFillers(for: dictationLanguage),
             extra: config.cleanup.extraFillers,

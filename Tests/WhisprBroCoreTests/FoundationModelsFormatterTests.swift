@@ -12,6 +12,28 @@ import os.log
 final class FoundationModelsFormatterTests: XCTestCase {
     private let log = Logger(subsystem: "com.micaxes.whispr-bro", category: "fm-tests")
 
+    // MARK: - Long-utterance ceiling
+
+    /// The ceiling has to exist on THIS path too, and more than on macOS: an
+    /// iOS session segment runs to five minutes (`SessionController`), so a
+    /// single segment can reach ~900 words — the band where the model was
+    /// measured paraphrasing instead of editing.
+    func testOverTheCeilingSkipsTheModel() async throws {
+        guard #available(iOS 26.0, macOS 26.0, *) else { throw XCTSkip("needs OS 26") }
+        let config = FoundationModelsFormatter.Config()
+        XCTAssertEqual(config.llmWordLimit, TextFormatter.Config().llmWordLimit,
+                       "the two formatters must agree on the ceiling")
+
+        let words = (1...(config.llmWordLimit + 50)).map { "word\($0)" }
+        let formatter = FoundationModelsFormatter(language: .english)
+        let result = await formatter.formatDetailed(words.joined(separator: " "))
+
+        XCTAssertEqual(result.source, .fallback(.tooLong),
+                       "a long segment must be skipped, not sent — even when the model IS available")
+        XCTAssertEqual(result.text.split(whereSeparator: \.isWhitespace).count, words.count,
+                       "the rules path may never change the word count")
+    }
+
     // MARK: - Transcript markers
 
     func testStripMarkersRemovesWrapper() throws {

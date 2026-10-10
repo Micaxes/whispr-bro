@@ -41,8 +41,10 @@ public struct FillerStripper: Sendable {
     /// problem"), `so` ("so-so"), `that` ("the fact that that happened"), `this`,
     /// and the prepositions/conjunctions (`in`, `on`, `for`, `but`) that recur
     /// in normal speech. Only pronouns + articles + `and` remain — where a doubled
-    /// token is almost always a stutter.
-    private static let stutterCollapsible: Set<String> = [
+    /// token is almost always a stutter. Public so the eval fixtures derive
+    /// their expected stutters from THIS set — the benchmark grades the
+    /// stripper against its own contract, never a second copy of it.
+    public static let stutterCollapsible: Set<String> = [
         "i", "a", "an", "the", "we", "you", "he", "she", "they", "it", "and", "to",
     ]
 
@@ -59,6 +61,10 @@ public struct FillerStripper: Sendable {
     private let collapseStutters: Bool
 
     public var isEmpty: Bool { regex == nil }
+    /// `[cleanup] collapse_stutters`: whether repeated words go. Off, he asked
+    /// for repetitions to be kept, so the self-repair rules' repetition rule
+    /// stays off too (`DictationPipeline.prePass`).
+    public var collapsesStutters: Bool { collapseStutters }
 
     /// - Parameters:
     ///   - core: the base filled-pause set (defaults to the English set; pass a

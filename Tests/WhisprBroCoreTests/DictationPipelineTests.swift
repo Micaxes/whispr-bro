@@ -64,6 +64,9 @@ final class DictationPipelineTests: XCTestCase {
                 return "formatted"
             })
         XCTAssertEqual(sawInput, "um hello")   // strip skipped — filler intact
+        // A VERBATIM register means Auto-Clean is off for that app, so the
+        // finishing pass is off too: no forced capital, no invented full stop.
+        // (A prose register gets both — see testCodeAndShellRegistersAreNotFinished.)
         XCTAssertEqual(outcome?.text, "formatted")
         XCTAssertEqual(outcome?.verbatimText, "um hello")
     }
@@ -91,7 +94,34 @@ final class DictationPipelineTests: XCTestCase {
             [0.1], dictionary: dict, stripper: stripper, level: .fillers,
             format: { $0 })   // identity: expose exactly what reached the formatter
         XCTAssertEqual(outcome?.verbatimText, "ship whispr-bro today")
-        XCTAssertEqual(outcome?.text, "ship whispr-bro today")
+        XCTAssertEqual(outcome?.text, "Ship whispr-bro today.",
+                       "identity formatter, so this is the finishing pass alone")
+    }
+
+    func testCodeAndShellRegistersAreNotFinished() async throws {
+        // A capital or an invented period in code is a syntax error, and in a
+        // shell it is a different command.
+        for register in [AppCategory.ide, .terminal] {
+            let pipeline = DictationPipeline(asr: StubAsr(text: "let x = 1"))
+            let outcome = try await pipeline.run(
+                [0.1], dictionary: noDict, stripper: stripper, level: .fillers,
+                register: register, format: { $0 })
+            XCTAssertEqual(outcome?.text, "let x = 1", "\(register) must pass through untouched")
+        }
+    }
+
+    func testSpokenLayoutIsAppliedAroundTheFormatter() async throws {
+        // The formatter never sees the marker words, and the layout lands on
+        // its output (DictationPipeline's contract with SpokenStructure).
+        let pipeline = DictationPipeline(asr: StubAsr(text: "buy milk new line buy eggs"))
+        var sawInput: String?
+        let outcome = try await pipeline.run(
+            [0.1], dictionary: noDict, stripper: stripper, level: .fillers,
+            format: { input in sawInput = input; return input })
+        XCTAssertEqual(sawInput, "buy milk. buy eggs", "markers lifted out, boundary left behind")
+        XCTAssertEqual(outcome?.text, "Buy milk\nBuy eggs.")
+        XCTAssertEqual(outcome?.verbatimText, "buy milk new line buy eggs",
+                       "history keeps what he actually said")
     }
 
     func testDictionaryTargetProtectedFromFillerStrip() async throws {
@@ -104,6 +134,258 @@ final class DictationPipelineTests: XCTestCase {
             [0.1], dictionary: dict, stripper: stripper, level: .fillers,
             format: { input in sawInput = input; return input })
         XCTAssertEqual(sawInput, "the uhm library")
+    }
+
+    // MARK: - Self-repair (before the strip, under its gate)
+
+    /// What reached the formatter (identity formatter) and the outcome.
+    private func run(
+        _ raw: String, level: AppConfig.Cleanup.Level = .standard, verbatimRegister: Bool = false,
+        language: DictationLanguage = .english, dictionary: DictionaryEngine? = nil,
+        format: @escaping (String) -> String = { $0 }
+    ) async throws -> (input: String?, outcome: DictationPipeline.Outcome?) {
+        var sawInput: String?
+        let outcome = try await DictationPipeline(asr: StubAsr(text: raw)).run(
+            [0.1], dictionary: dictionary ?? noDict,
+            stripper: FillerStripper(core: FillerStripper.coreFillers(for: language)),
+            level: level, verbatimRegister: verbatimRegister, language: language,
+            format: { input in sawInput = input; return format(input) })
+        return (sawInput, outcome)
+    }
+
+    func testSelfRepairRunsBeforeTheFillerStrip() async throws {
+        // The filled pause is R1's evidence that "ten, uh, ten" is a repeat.
+        // Stripped first, "ten, ten" reads as a list and nothing could fire.
+        let raw = "look at the last ten, uh, ten runs"
+        XCTAssertEqual(stripper.strip(raw), "look at the last ten, ten runs")
+        XCTAssertEqual(SelfRepair().apply(stripper.strip(raw)).fires, [])
+        let (input, outcome) = try await run(raw)
+        XCTAssertEqual(input, "look at the last ten runs")
+        XCTAssertEqual(outcome?.verbatimText, raw, "history keeps what he said")
+    }
+
+    func testDictionaryRunsFirstAndItsTargetsAreProtected() async throws {
+        // "zq" between two words is a fragment to R3 — unless the dictionary
+        // put it there.
+        let (bare, _) = try await run("run the zq tool now")
+        XCTAssertEqual(bare, "run the tool now")
+        let dict = DictionaryEngine(rules: [.init(from: "zed queue", to: "zq")])
+        let (input, outcome) = try await run("run the zed queue tool now", dictionary: dict)
+        XCTAssertEqual(input, "run the zq tool now")
+        XCTAssertEqual(outcome?.verbatimText, "run the zq tool now")
+    }
+
+    func testCorrectionsResolveOnlyAtStandard() async throws {
+        let raw = "ship the the build build Thursday, no wait, Friday"
+        let (fillers, _) = try await run(raw, level: .fillers)
+        XCTAssertEqual(fillers, "ship the build Thursday, no wait, Friday", "repeats only")
+        let (standard, _) = try await run(raw, level: .standard)
+        XCTAssertEqual(standard, "ship the build Friday")
+        let (_, verbatim) = try await run(raw, level: .verbatim)
+        XCTAssertEqual(verbatim?.text, raw, "verbatim: byte-identical, nothing removed")
+    }
+
+    func testVerbatimRegistersAreUntouched() async throws {
+        let raw = "um the dog dog park opens Thursday, no wait, Friday"
+        let (input, _) = try await run(raw, verbatimRegister: true)
+        XCTAssertEqual(input, raw)
+    }
+
+    func testSelfRepairIsEnglishOnly() async throws {
+        // Another dictation language: the stage does not run at all.
+        let (italian, _) = try await run("the dog dog park is open", language: .italian)
+        XCTAssertEqual(italian, "the dog dog park is open")
+        // English selected, but the recognizer is sure the text is not.
+        let text = "Il burro burro e la farina sono sul tavolo della cucina."
+        let (gated, _) = try await run(text)
+        XCTAssertEqual(gated, text)
+        let (english, _) = try await run("the dog dog park is open")
+        XCTAssertEqual(english, "the dog park is open")
+    }
+
+    func testSpokenLayoutSurvivesTheRepairs() async throws {
+        let (_, repeat_) = try await run("we went over over the numbers new paragraph thanks again")
+        XCTAssertEqual(repeat_?.text, "We went over the numbers.\n\nThanks again.")
+        // A doubled marker is SpokenStructure's (it drops the redundant one):
+        // the rules leave both copies for it.
+        XCTAssertEqual(SelfRepair().apply("buy milk new line new line buy eggs").fires, [])
+        let (_, doubled) = try await run("buy milk new line new line buy eggs")
+        XCTAssertEqual(doubled?.text, "Buy milk\nBuy eggs.")
+        let (_, bullets) = try await run("three things bullet point the the cache cache keys bullet point the lo logs")
+        XCTAssertEqual(bullets?.text, "Three things:\n- The cache keys\n- The logs")
+    }
+
+    func testTwoEqualListItemsAreTwoItems() async throws {
+        // A spoken layout marker is a boundary the rules never cross: two
+        // equal items in a row are not a repeat, at either level that runs
+        // the rules (the tally of a vote must not change).
+        for level in [AppConfig.Cleanup.Level.fillers, .standard] {
+            let (_, survey) = try await run("survey answers bullet point yes bullet point yes bullet point no",
+                                            level: level)
+            XCTAssertEqual(survey?.text, "Survey answers:\n- Yes\n- Yes\n- No", "\(level)")
+            let (_, votes) = try await run(
+                "votes bullet point approve bullet point approve bullet point reject bullet point approve",
+                level: level)
+            XCTAssertEqual(votes?.text, "Votes:\n- Approve\n- Approve\n- Reject\n- Approve", "\(level)")
+            let (_, lines) = try await run("hi team new line okay new line okay new line thanks", level: level)
+            XCTAssertEqual(lines?.text, "Hi team\nOkay\nOkay\nThanks.", "\(level)")
+            let (_, roll) = try await run("roll call next line present next line present next line absent",
+                                          level: level)
+            XCTAssertEqual(roll?.text, "Roll call\nPresent\nPresent\nAbsent.", "\(level)")
+        }
+        // A repair inside an item still goes; a retraction never takes a
+        // marker with it.
+        let (_, item) = try await run("todo bullet point book book the vet bullet point buy milk")
+        XCTAssertEqual(item?.text, "Todo:\n- Book the vet\n- Buy milk")
+        let retracted = "Buy milk. Scratch that, new line buy eggs and bread."
+        let (input, _) = try await run(retracted)
+        XCTAssertEqual(input, retracted, "both kept: the rules never delete a marker")
+    }
+
+    func testRepetitionsStayWhenStutterCollapseIsOff() {
+        // `collapse_stutters = false`: the stripper keeps "I I", and the
+        // rules keep their repeats too; the other rules still run.
+        let keeping = FillerStripper(collapseStutters: false)
+        let raw = "I I think we went over over the lo logs"
+        XCTAssertEqual(DictationPipeline.prePass(raw, dictionary: noDict, stripper: keeping, level: .standard,
+                                                 verbatimRegister: false, language: .english),
+                       "I I think we went over over the logs")
+        XCTAssertEqual(DictationPipeline.prePass(raw, dictionary: noDict, stripper: stripper, level: .standard,
+                                                 verbatimRegister: false, language: .english),
+                       "I think we went over the logs")
+    }
+
+    func testTheDefaultLevelKeepsALoneShortWord() {
+        // R3a's non-words are Standard's: at Fillers a lower-case abbreviation
+        // is never taken for a stray letter.
+        func prePass(_ text: String, _ level: AppConfig.Cleanup.Level) -> String {
+            DictationPipeline.prePass(text, dictionary: noDict, stripper: stripper, level: level,
+                                      verbatimRegister: false, language: .english)
+        }
+        XCTAssertEqual(prePass("the pr is ready for review", .fillers), "the pr is ready for review")
+        XCTAssertEqual(prePass("ask my pt about the knee", .fillers), "ask my pt about the knee")
+        XCTAssertEqual(prePass("the desk and the b chair are new", .standard), "the desk and the chair are new")
+    }
+
+    func testDoublesThatAreContentReachTheFormatter() async throws {
+        // Another language's doubles, a sign-off, a phrasal verb's particle
+        // before the same preposition, English grammar: kept at both levels
+        // that run the rules, and the filler strip leaves them too.
+        for level in [AppConfig.Cleanup.Level.fillers, .standard] {
+            for raw in ["Ti mando tanti tanti baci, see you soon.", "Baci baci", "Forza forza!",
+                        "Quasi quasi I'll stay another week.", "Book the lomi lomi massage for Sunday.",
+                        "Can you swing by by noon tomorrow?", "Cool cool, see you then.",
+                        "By then she had had enough of the noise."] {
+                let (input, _) = try await run(raw, level: level)
+                XCTAssertEqual(input, raw, "\(level)")
+            }
+            // The same shapes as a stutter still go.
+            let (stutter, _) = try await run("We went over over these numbers yesterday.", level: level)
+            XCTAssertEqual(stutter, "We went over these numbers yesterday.", "\(level)")
+            let (wiki, _) = try await run("Check the wiki wiki page for the address.", level: level)
+            XCTAssertEqual(wiki, "Check the wiki page for the address.", "\(level)")
+        }
+    }
+
+    func testRoundZeroFindingsThroughThePipeline() async throws {
+        // [T20] A short Italian or English word between words is a word, not a
+        // cut-off one, at Standard too — the strip leaves it as well.
+        for raw in ["Running late, ti chiamo after lunch.", "Ciao, ti scrivo after the meeting, see you at Christmas.",
+                    "Running late, fa freddo here so grab a jacket.", "I learned kung fu as a kid."] {
+            let (input, _) = try await run(raw, level: .standard)
+            XCTAssertEqual(input, raw)
+        }
+        // [T21] A bare noun phrase after a mid-sentence "scratch that" takes
+        // its slot, not the clause; no slot that fits keeps both.
+        let (slot, _) = try await run("Book a window seat, scratch that, an aisle seat.")
+        XCTAssertEqual(slot, "Book an aisle seat.")
+        let (leads, _) = try await run("Invite every engineer, scratch that, only leads.")
+        XCTAssertEqual(leads, "Invite only leads.")
+        let (both, _) = try await run("Sam fixed it, scratch that, Priya.")
+        XCTAssertEqual(both, "Sam fixed it, scratch that, Priya.")
+        let (clause, _) = try await run("I'll take the train, scratch that, I'll drive.")
+        XCTAssertEqual(clause, "I'll drive.")
+        // [T19] [T22] A double right after a wh-word is a stutter, at both
+        // levels; with a subject between, grammar.
+        for level in [AppConfig.Cleanup.Level.fillers, .standard] {
+            let (stutter, _) = try await run("What are are you doing tonight?", level: level)
+            XCTAssertEqual(stutter, "What are you doing tonight?", "\(level)")
+            let (name, _) = try await run("What is is your name?", level: level)
+            XCTAssertEqual(name, "What is your name?", "\(level)")
+            for raw in ["What the options are are listed below.", "What it is is a timing bug."] {
+                let (input, _) = try await run(raw, level: level)
+                XCTAssertEqual(input, raw, "\(level)")
+            }
+        }
+    }
+
+    func testDescribingARepairKeepsIt() async throws {
+        let raw = "add a fixture where the input is ship it Thursday, no wait, Friday and nothing else"
+        let (input, _) = try await run(raw)
+        XCTAssertEqual(input, raw)
+        let (made, _) = try await run("ship it Thursday, no wait, Friday and nothing else")
+        XCTAssertEqual(made, "ship it Friday and nothing else")
+    }
+
+    // MARK: - The text half (Command Mode with nothing selected)
+
+    func testFinishIsTheDictationTextPath() async throws {
+        // Command Mode with nothing selected hands its words to `finish`: the
+        // same self-repair, strip, layout and finishing as a dictation.
+        let raw = "um so the the build build ships Thursday, no wait, Friday new line thanks"
+        var prepared = 0
+        let (text, seconds) = await DictationPipeline.finish(
+            raw, dictionary: noDict, stripper: stripper, level: .standard,
+            prepareFormatter: { prepared += 1 }, format: { TextFormatter.ruleBasedCleanup($0) })
+        XCTAssertEqual(text, "So the build ships Friday\nThanks.")
+        XCTAssertEqual(prepared, 1)
+        XCTAssertGreaterThanOrEqual(seconds, 0)
+        let (_, outcome) = try await run(raw, format: { TextFormatter.ruleBasedCleanup($0) })
+        XCTAssertEqual(outcome?.text, text, "byte-identical to a dictation of the same words")
+        // Verbatim: untouched, and neither the preparation nor the formatter runs.
+        var formatted = false
+        let (verbatim, none) = await DictationPipeline.finish(
+            raw, dictionary: noDict, stripper: stripper, level: .verbatim,
+            prepareFormatter: { prepared += 1 }, format: { formatted = true; return $0 })
+        XCTAssertEqual(verbatim, raw)
+        XCTAssertEqual(none, 0)
+        XCTAssertEqual(prepared, 1)
+        XCTAssertFalse(formatted)
+    }
+
+    func testQuotationsSurvive() async throws {
+        for raw in ["he typed \"the the dog dog\" twice", "call it 'fix fix' for now"] {
+            let (input, _) = try await run(raw)
+            XCTAssertEqual(input, raw)
+        }
+    }
+
+    func testRulesOnlyIsTheDeterministicPathEndToEnd() async throws {
+        // Rules only — no AI rewrite: the formatter is the rule-based cleanup.
+        let (_, outcome) = try await run("um so the the build build ships Thursday, no wait, Friday",
+                                         format: { TextFormatter.ruleBasedCleanup($0) })
+        XCTAssertEqual(outcome?.text, "So the build ships Friday.")
+    }
+
+    func testALineBreakFromTheDictionarySurvivesARepair() async throws {
+        // A dictionary target may carry a line break; the repair keeps it.
+        let dict = DictionaryEngine(rules: [.init(from: "sign off", to: "Best,\nSam")])
+        let (input, _) = try await run("thanks for the dog dog park sign off", dictionary: dict)
+        XCTAssertEqual(input, "thanks for the dog park Best,\nSam")
+    }
+
+    func testPrePassGating() {
+        let raw = "the dog dog park opens Thursday, no wait, Friday, um, okay"
+        func prePass(_ level: AppConfig.Cleanup.Level, verbatimRegister: Bool = false,
+                     language: DictationLanguage = .english) -> String {
+            DictationPipeline.prePass(raw, dictionary: noDict, stripper: stripper, level: level,
+                                      verbatimRegister: verbatimRegister, language: language)
+        }
+        XCTAssertEqual(prePass(.verbatim), raw)
+        XCTAssertEqual(prePass(.standard, verbatimRegister: true), raw)
+        XCTAssertEqual(prePass(.fillers), "the dog park opens Thursday, no wait, Friday, okay")
+        XCTAssertEqual(prePass(.standard), "the dog park opens Friday, okay")
+        XCTAssertEqual(prePass(.standard, language: .spanish), stripper.strip(raw))
     }
 
     // MARK: - Formatter stage

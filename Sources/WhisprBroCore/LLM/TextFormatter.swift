@@ -19,6 +19,10 @@ public enum FormatterFallbackReason: String, Sendable {
     /// Short-utterance fast path: the model is skipped BY DESIGN (Parakeet
     /// already punctuates), identically on every machine — not a failure.
     case fastPath = "fast-path"
+    /// Long-utterance ceiling: over `llmWordLimit` words the model is skipped
+    /// BY DESIGN. Also not a failure — see `TextFormatter.Config.llmWordLimit`
+    /// for the measurements behind the number.
+    case tooLong = "too-long"
     /// Raw mode: the model stage is disabled for this dictation.
     case rawMode = "raw-mode"
     /// The engine is not loaded / the system model is unavailable right now.
@@ -27,8 +31,9 @@ public enum FormatterFallbackReason: String, Sendable {
     case requestFailed = "request-failed"
     /// The hard deadline elapsed before the model responded.
     case timedOut = "timed-out"
-    /// The model responded but the output failed validation (empty after
-    /// sanitizing, or rejected by `plausibleReformatting`).
+    /// The model responded but the output failed validation: refused by
+    /// `TextFormatter.gateModelOutput` (a `ContentGuard` gate, or
+    /// `implausibility` — wordless after sanitizing included).
     case implausible
 }
 
@@ -37,15 +42,43 @@ public enum FormatterFallbackReason: String, Sendable {
 ///  - **raw mode** (per-call): LLM disabled — rule-based cleanup only.
 ///  - **short-utterance fast path**: under `fastPathWordLimit` words, skip the
 ///    LLM — Parakeet already punctuates, so the round-trip isn't worth it.
+///  - **long-utterance ceiling**: over `llmWordLimit` words, skip it too — an
+///    unmeasured band where the model paraphrases instead of editing.
 ///  - **generation cap**: `maxTokens ≈ 2×` the input so a model can't run away.
 ///  - **hard time budget**: the engine's abort callback aborts a decode that
 ///    exceeds `hangTimeout`, so a stuck GPU decode can't wedge the pipeline;
 ///    on abort/failure the dictation falls back to the rule-based result.
 ///  - **sanitizer**: conservatively strips known preambles / think blocks a
 ///    model may add despite instructions.
+///  - **output gate** (`gateModelOutput`): `ContentGuard`'s gold-free gates
+///    on the `.live` profile — the six rules L1-L6 — plus
+///    `implausibility` for the wordless reply; a refused reply lands as the
+///    rule-based result, never as the model's, and it is the same gate the
+///    iOS stage runs. On this path a refusal costs the user a real
+///    improvement, so the live profile refuses a catastrophe and nothing
+///    else (`ContentGuard.Profile`); the bench grader keeps every rule.
 public actor TextFormatter {
     public struct Config: Sendable {
         public var fastPathWordLimit: Int = 6
+        /// Upper bound on what goes to the LLM, in words. Over it the stage is
+        /// skipped and the rule-based cleanup ships. A dictation is counted
+        /// as it was before the self-repair rules (`ceilingWords`,
+        /// `DictationPipeline.FormatterInput`): their deletions never bring
+        /// one under it.
+        ///
+        /// 150 because that is where the evidence stops: the longest fixture in
+        /// the eval set is `latency-150`, and above ~200 words the measured
+        /// behaviour turns bad in two ways — the model either **paraphrases**
+        /// (a 450-word dictation came back as 121 words, a 0.27 ratio that the
+        /// live gate's 0.25 floor lets through, so 329 words are lost at the
+        /// cursor with no warning) or **echoes its input** after burning
+        /// 2.4-3.1s, which `hangTimeout` then cuts anyway. A 2048-token context
+        /// (`LlamaCppEngine.contextTokens`) minus the ~330-token prefix also
+        /// can't hold a long transcript AND its rewrite, and an overflow
+        /// mid-generation returns truncated output as a success.
+        ///
+        /// Raise it only with fixtures at the new length in the eval set.
+        public var llmWordLimit: Int = 150
         public var hangTimeout: Duration = .seconds(3)
         public var maxTokensFloor: Int = 24
         /// Output-token budget as a multiple of the input word count.
@@ -83,19 +116,26 @@ public actor TextFormatter {
     /// Format `raw` (already dictionary-corrected). Never throws: any engine
     /// failure, timeout, or raw/fast-path degrades to the rule-based result so
     /// a dictation always lands.
-    /// - Parameter resolveCorrections: when true, a short utterance that carries
-    ///   a self-correction cue (spec §5c) is NOT shortcut to the fast path — it
-    ///   goes to the LLM so the correction can be resolved. Only set by the
-    ///   pipeline at `level = standard` on a non-verbatim register.
+    /// - Parameters:
+    ///   - resolveCorrections: when true, a short utterance that carries a
+    ///     self-correction cue (spec §5c) is NOT shortcut to the fast path —
+    ///     it goes to the LLM so the correction can be resolved. Only set by
+    ///     the pipeline at `level = standard` on a non-verbatim register.
+    ///   - ceilingWords: the word count the long-utterance ceiling applies
+    ///     to when it is not `raw`'s own: the pipeline's count of the
+    ///     dictation before the self-repair rules
+    ///     (`DictationPipeline.FormatterInput.ceilingWords`), so the rules
+    ///     never bring a long dictation onto the model. The larger of the two
+    ///     counts decides.
     public func format(
         _ raw: String, rawMode: Bool, styleDirective: String = "",
         preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false,
-        language: DictationLanguage = .english
+        language: DictationLanguage = .english, ceilingWords: Int? = nil
     ) async -> String {
         await formatDetailed(
             raw, rawMode: rawMode, styleDirective: styleDirective,
             preserveCasingFor: preserveCasingFor, resolveCorrections: resolveCorrections,
-            language: language
+            language: language, ceilingWords: ceilingWords
         ).text
     }
 
@@ -103,13 +143,17 @@ public actor TextFormatter {
     /// rule-based fallback, and why (see `FormatterSource`). Measurement
     /// callers (`whispr-bench eval`) need the distinction so a fallback run
     /// can never masquerade as model evidence; the pipeline uses `format`.
+    /// `rejected` is non-nil only on the `.implausible` path: the RAW model
+    /// output the gate refused, so the bench can print WHAT the model did
+    /// wrong (an answer, invented math, a polarity flip) instead of only
+    /// that it fell back — the same shape as `FoundationModelsFormatter`'s.
     public func formatDetailed(
         _ raw: String, rawMode: Bool, styleDirective: String = "",
         preserveCasingFor: Set<String> = [], resolveCorrections: Bool = false,
-        language: DictationLanguage = .english
-    ) async -> (text: String, source: FormatterSource) {
+        language: DictationLanguage = .english, ceilingWords: Int? = nil
+    ) async -> (text: String, source: FormatterSource, rejected: String?) {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return (trimmed, .fallback(.fastPath)) }
+        guard !trimmed.isEmpty else { return (trimmed, .fallback(.fastPath), nil) }
 
         let wordCount = trimmed.split(whereSeparator: \.isWhitespace).count
         // A short utterance skips the LLM — unless it likely holds a correction
@@ -118,11 +162,20 @@ public actor TextFormatter {
             && CorrectionCues.plausibleCorrection(in: trimmed, language: language)
         if rawMode || (wordCount < config.fastPathWordLimit && !cueBypass) {
             return (Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
-                    .fallback(rawMode ? .rawMode : .fastPath))
+                    .fallback(rawMode ? .rawMode : .fastPath), nil)
+        }
+        // Over the ceiling the model is skipped, not timed out into: a long
+        // hands-free dictation must reach the cursor whole (see `llmWordLimit`).
+        // Counted before the self-repair rules when the pipeline says so.
+        let counted = max(wordCount, ceilingWords ?? 0)
+        if counted > config.llmWordLimit {
+            log.info("LLM skipped: \(counted) words over the \(self.config.llmWordLimit)-word ceiling")
+            return (Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
+                    .fallback(.tooLong), nil)
         }
         guard await engine.isLoaded else {
             return (Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
-                    .fallback(.unavailable))
+                    .fallback(.unavailable), nil)
         }
 
         let cap = max(config.maxTokensFloor, Int(Double(wordCount) * config.tokensPerWord))
@@ -130,6 +183,7 @@ public actor TextFormatter {
             let formatted = try await engine.format(
                 trimmed, styleDirective: styleDirective,
                 maxTokens: cap, timeout: config.hangTimeout)
+            // The gate sanitizes, repairs punctuation, then validates.
             // Punctuation repair runs POST-LLM only: pre-LLM it is redundant
             // (FillerStripper's gap repair already normalized strip sites, and
             // the LLM tolerates residue), but post-LLM it is load-bearing —
@@ -138,20 +192,29 @@ public actor TextFormatter {
             // `repairPunctuation` is idempotent and a no-op on clean output.
             // Full `ruleBasedCleanup` would be wrong here: it appends periods
             // to deliberately unterminated per-app-style output.
-            let cleaned = Self.repairPunctuation(Self.sanitize(formatted))
-            return cleaned.isEmpty
-                ? (Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
-                   .fallback(.implausible))
-                : (cleaned, .model)
+            let gate = Self.gateModelOutput(formatted, of: trimmed, language: language)
+            guard let accepted = gate.accepted else {
+                // Both catastrophic history classes (a question answered in
+                // markdown, invented math) land here: the RULE names the
+                // gate and is public; the head of the refused reply is
+                // dictated text and stays private.
+                log.error("""
+                    format output rejected — \(gate.reason ?? "?", privacy: .public): \
+                    \(Self.logHead(formatted)); using raw
+                    """)
+                return (Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
+                        .fallback(.implausible), formatted)
+            }
+            return (accepted, .model, nil)
         } catch WhisprError.formattingTimedOut {
             log.error("format aborted (>\(self.config.hangTimeout.description)); re-priming, using raw")
             await engine.recover()
             return (Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
-                    .fallback(.timedOut))
+                    .fallback(.timedOut), nil)
         } catch {
             log.error("format failed: \(error.localizedDescription); using raw")
             return (Self.ruleBasedCleanup(trimmed, preserveCasingFor: preserveCasingFor),
-                    .fallback(.requestFailed))
+                    .fallback(.requestFailed), nil)
         }
     }
     #endif
@@ -398,80 +461,133 @@ public actor TextFormatter {
         return s
     }
 
+    // MARK: - Output gate
+
+    /// The ONE gate a formatter model's reply must pass before it can reach
+    /// the user, shared by the macOS llama stage and the iOS Foundation
+    /// Models stage: `sanitize` + `repairPunctuation`, then `ContentGuard`
+    /// in gold-free mode — raw = the input the model saw, out = the cleaned
+    /// reply, no gold, no alternates, disfluencies derived from the
+    /// stripper's own lexicon — refusing on any gate the LIVE profile runs,
+    /// then `implausibility` for a wordless reply. Returns the cleaned text
+    /// to insert, or nil with the reason to log: the guard's worst gate with
+    /// every trigger that fired, or the plausibility rule. The caller falls
+    /// back to `ruleBasedCleanup` — a refused reply never reaches the user,
+    /// and the model's raw text is surfaced only to the bench
+    /// (`formatDetailed`'s `rejected`).
+    ///
+    /// The gate's job is to catch a CATASTROPHE, not to referee edit
+    /// quality: on this path a refusal costs the user a real improvement (he
+    /// gets the rules output, i.e. the unresolved raw), while edit quality is
+    /// what the benchmark scores and what the register wording and the
+    /// prompt delimiters fix. It is SIX rules — L1 structure, L2 runaway,
+    /// L3 wholesale loss, L4 wordless, L5 invented numeral, L6 invented
+    /// content — and `ContentGuard.Profile` states each one, the evidence for
+    /// it, and the seven shapes the gate knowingly does not catch. Over-editing
+    /// inside the length band, a resolved correction that shrinks a short
+    /// utterance, two introduced words and a polarity inversion all land. The
+    /// BENCH grader keeps its own, stricter profile, so row 54's invented
+    /// total still gates there and so does every flip.
+    ///
+    /// The two halves cannot disagree: `implausibility` is L1, L2 and L4
+    /// read off the same tokens and the same constants, so the only verdict
+    /// it can reach that the guard cannot is the wordless one.
+    ///
+    /// Static and engine-free so the decision is pinned over (input, model
+    /// output) pairs — the history rows that motivated it — without a model.
+    public static func gateModelOutput(
+        _ output: String, of input: String, language: DictationLanguage = .english
+    ) -> GateVerdict {
+        let cleaned = repairPunctuation(sanitize(output))
+        let guarded = ContentGuard.check(raw: input, out: cleaned, language: language, profile: .live)
+        if let worst = guarded.worst {
+            let triggers = guarded.triggers.map(\.rawValue).joined(separator: ", ")
+            return GateVerdict(accepted: nil, reason: "\(worst.rawValue) (\(triggers))")
+        }
+        if let rule = implausibility(of: cleaned, input: input) {
+            return GateVerdict(accepted: nil, reason: "implausible: \(rule)")
+        }
+        return GateVerdict(accepted: cleaned, reason: nil)
+    }
+
+    /// What the gate decided. `reason` is the rule that fired — a gate with
+    /// its triggers, or the plausibility rule — and never carries dictated
+    /// text, so a log may print it in clear. (It once carried a second,
+    /// private field for the content token the introduced-word rule named;
+    /// that rule is gone, and with it the only reason this struct had to
+    /// hold anything the user said.) Nil reason ⇔ non-nil `accepted`.
+    public struct GateVerdict: Sendable, Equatable {
+        public let accepted: String?
+        public let reason: String?
+    }
+
+    /// The first ~80 characters of a refused reply on one line, for the
+    /// rejection log — enough to see an answer or an invented number without
+    /// dumping the whole reply.
+    static func logHead(_ text: String, limit: Int = 80) -> String {
+        let head = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\n", with: " ⏎ ")
+        return head.count > limit ? String(head.prefix(limit)) + "…" : head
+    }
+
     // MARK: - Output validation
 
     /// Engine-agnostic guardrail over a formatter model's output: `sanitize` +
     /// `repairPunctuation`, then nil when the result cannot plausibly be a
     /// REFORMATTING of `input` — the caller falls back to its rule-based
     /// result. Encodes the measured small-model failure modes
-    /// (docs/llm-measurement-gate.md) without engine knowledge, so the iOS
-    /// Foundation Models stage and a future llama-on-iOS A/B share ONE gate:
-    ///  - empty output;
-    ///  - multiple non-empty lines out of a single-line dictation (a preamble
-    ///    the sanitizer's allowlist missed, commentary, or an "answer" — a
-    ///    dictation is one paragraph);
-    ///  - word count outside `[0.5, 1.6]×` the input's (filler stripping
-    ///    shrinks, formatting never grows — Llama-3.2's documented 771-char
-    ///    generated-JavaScript "answer" dies here), with an absolute ±4-word
-    ///    allowance for inputs of ≤ 8 words, where the ratio band is too
-    ///    tight to be meaningful;
-    ///  - any INTRODUCED content word: an output token containing a letter
-    ///    that never appears in the input (case-insensitive, punctuation-
-    ///    stripped). The measured FM failure mode this closes is an in-band
-    ///    single-line ANSWER — "is it done?. okay.. let's go" → "Yes, it is
-    ///    done. Okay, let's go." — which every check above accepts. Purely
-    ///    numeric/time tokens are exempt so number denormalization ("two
-    ///    thirty" → "2:30") survives; adjacent-pair concatenations count as
-    ///    input vocabulary so a prompt-sanctioned split-word merge ("double
-    ///    check" → "double-check") does too; plus the tiny
-    ///    `introducibleWords` allowlist for other prompt-sanctioned forms.
+    /// (docs/llm-measurement-gate.md) without engine knowledge; it is the
+    /// second half of `gateModelOutput`, after `ContentGuard`, so the macOS
+    /// llama stage and the iOS Foundation Models stage share ONE gate:
+    ///  - **L4 WORDLESS** — an output with no letter and no digit in it:
+    ///    empty, or punctuation residue like "." left by the sanitizer.
+    ///    There is nothing to insert, so refusing costs nothing; reading
+    ///    "empty" as "no characters" alone would let a lone period replace a
+    ///    whole dictation (the fast path handles genuinely one-word
+    ///    utterances, so a wordless reply is never the right answer here).
+    ///    This is the one rule of the six that needs no alignment,
+    ///    which is why it lives here and not in `ContentGuard`;
+    ///  - **L1 STRUCTURE** — multiple non-empty lines out of a single-line
+    ///    dictation (a preamble the sanitizer's allowlist missed, commentary,
+    ///    or an "answer" — a dictation is one paragraph);
+    ///  - **L2 RUNAWAY** — more than `EvalThresholds.answeredLengthRatio`
+    ///    times the input's ATOMS, on an input of at least
+    ///    `minWordsForRatio` of them: formatting adds punctuation, not words,
+    ///    and Llama-3.2's documented 771-character generated-JavaScript
+    ///    "answer" dies here.
+    ///
+    /// L1 and L2 are read with `ContentGuard`'s own tokens and constants, so
+    /// this rule cannot hold a second, DISAGREEING opinion about length or
+    /// structure — one length band, one place. (It once had its own `1.6×`
+    /// over whitespace-split words, which made the shipping gate stricter
+    /// than the grader on a band nobody could point at.)
+    ///
+    /// What this rule no longer does is as deliberate as what it does. The
+    /// lower bound of the old `[0.5, 1.6]×` band is gone from HERE: a
+    /// wholesale loss is L3, in `ContentGuard`, where the raw atoms are
+    /// already counted. The introduced-content-word rule is gone outright: it
+    /// refused the homophone and split-word fixes the system prompt
+    /// COMMISSIONS, and every list written to exempt them (homophone classes,
+    /// ordinal and meridiem suffixes) sanctioned the corruption direction
+    /// too. `ContentGuard`'s L6 is the rule that survived.
     public static func plausibleReformatting(_ output: String, of input: String) -> String? {
         let cleaned = repairPunctuation(sanitize(output))
-        guard !cleaned.isEmpty else { return nil }
-        if nonEmptyLineCount(cleaned) > 1, nonEmptyLineCount(input) <= 1 { return nil }
-        let inWords = input.split(whereSeparator: \.isWhitespace).count
-        let outWords = cleaned.split(whereSeparator: \.isWhitespace).count
-        let inBand = Double(outWords) >= 0.5 * Double(inWords)
-            && Double(outWords) <= 1.6 * Double(inWords)
-        let shortAllowance = inWords <= 8 && abs(outWords - inWords) <= 4
-        guard inBand || shortAllowance else { return nil }
-        // A formatting pass must not INTRODUCE content words. Dropping words
-        // is fine (fillers, resolved corrections); inventing them is the
-        // answering/commentary failure the other checks can miss.
-        let inputTokens = contentWords(of: input)
-        var inputVocabulary = Set(inputTokens)
-        // The prompt sanctions merging split words, and a hyphen join strips
-        // to the pair's concatenation ("double check" → "double-check" →
-        // "doublecheck") — measured live as gate collateral on the
-        // bench-quarterly fixture — so adjacent-pair concatenations are
-        // input vocabulary too, not new content.
-        for (a, b) in zip(inputTokens, inputTokens.dropFirst()) {
-            inputVocabulary.insert(a + b)
-        }
-        for word in contentWords(of: cleaned)
-        where !inputVocabulary.contains(word) && !introducibleWords.contains(word) {
-            return nil
-        }
-        return cleaned
+        return implausibility(of: cleaned, input: input) == nil ? cleaned : nil
     }
 
-    /// Word forms the formatter prompt legitimately introduces without an
-    /// input counterpart — currently only the a.m./p.m. suffixes of time
-    /// denormalization ("three in the afternoon" → "3 p.m."; the digits are
-    /// already exempt as non-alphabetic). Deliberately tiny: every entry is a
-    /// hole in the no-new-content-words gate. Dotted variants ("p.m.")
-    /// compare equal automatically because `contentWords` strips punctuation.
-    private static let introducibleWords: Set<String> = ["am", "pm"]
-
-    /// Case-folded word cores of `text` for the introduced-content check:
-    /// lowercased, punctuation stripped (letters and digits kept), tokens
-    /// without a letter dropped — so "2:30", "3", and bare marks never count
-    /// as content words.
-    private static func contentWords(of text: String) -> [String] {
-        text.lowercased().split(whereSeparator: \.isWhitespace).compactMap { chunk in
-            let core = String(chunk.filter { $0.isLetter || $0.isNumber })
-            return core.contains(where: \.isLetter) ? core : nil
+    /// `plausibleReformatting`'s verdict over an ALREADY sanitized and
+    /// repaired output — the rule that fired; nil when plausible. No rule
+    /// here names a content token any more, so the verdict is public text.
+    static func implausibility(of cleaned: String, input: String) -> String? {
+        guard cleaned.contains(where: { $0.isLetter || $0.isNumber }) else { return "empty" }
+        if nonEmptyLineCount(cleaned) > 1, nonEmptyLineCount(input) <= 1 { return "multi-line" }
+        let inAtoms = Align.canonicalTokens(input).count
+        let outAtoms = Align.canonicalTokens(cleaned).count
+        guard inAtoms < EvalThresholds.minWordsForRatio
+                || Double(outAtoms) <= EvalThresholds.answeredLengthRatio * Double(inAtoms) else {
+            return "\(outAtoms) atoms out of \(inAtoms)"
         }
+        return nil
     }
 
     private static func nonEmptyLineCount(_ s: String) -> Int {

@@ -227,13 +227,49 @@ struct SettingsView: View {
             ForEach(AppConfig.Cleanup.Level.allCases, id: \.self) { level in
                 BrandRadioRow(
                     title: level.displayName,
-                    subtitle: cleanupSubtitle(level),
+                    subtitle: SelfRepairCopy.levelSubtitle(
+                        level, selfRepair: pipeline.selfRepair,
+                        aiRewrite: pipeline.llmAvailable && !pipeline.rulesOnly),
                     selected: pipeline.cleanupLevel == level
                 ) { pipeline.cleanupLevel = level }
             }
         }
+        section("Self-corrections") {
+            BrandCard {
+                Toggle(isOn: Binding(get: { pipeline.selfRepair }, set: { pipeline.setSelfRepair($0) })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(SelfRepairCopy.switchTitle).font(Brand.sans(14)).foregroundStyle(Brand.ink)
+                        Text(SelfRepairCopy.switchSubtitle)
+                            .font(Brand.sans(12)).foregroundStyle(Brand.bodyMuted)
+                    }
+                }
+                .toggleStyle(.switch).tint(Brand.ink)
+            }
+            BrandCaption(SelfRepairCopy.switchCaption)
+        }
         section("How corrections work") {
-            BrandCaption("“Standard” resolves self-corrections: say “meet at 2, actually 3” and only “meet at 3” is kept. If unsure, it keeps both. It never changes facts, numbers, or names. In code editors, terminals, and notes, filler removal and self-correction are skipped.")
+            // What the rules still get wrong, level by level; every example
+            // is held to what they do (SelfRepairCopy, SettingsCopyTests).
+            BrandCaption(SelfRepairCopy.howCorrectionsWork)
+        }
+        section("AI rewrite") {
+            if pipeline.llmAvailable {
+                BrandCard {
+                    Toggle(isOn: $pipeline.rulesOnly) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Rules only — no AI rewrite").font(Brand.sans(14)).foregroundStyle(Brand.ink)
+                            Text(SelfRepairCopy.rulesOnlySubtitle(pipeline.cleanupLevel, selfRepair: pipeline.selfRepair))
+                                .font(Brand.sans(12)).foregroundStyle(Brand.bodyMuted)
+                        }
+                    }
+                    .toggleStyle(.switch).tint(Brand.ink)
+                }
+                BrandCaption("On, the formatting model stays out of memory — about 1 GB back, and no model time per dictation. Command Mode loads it to edit a selection and frees it after. Off by default.")
+            } else if let note = pipeline.formattingModelStatus.settingsNote {
+                // Not installed, not loaded yet, or failed to load — each
+                // says which (FormattingModelStatus).
+                BrandCaption(note)
+            }
         }
         section("Atypical speech") {
             BrandCaption("If you stutter, dictate in a second language, or want repetitions kept, set the level to “Off (verbatim)” — nothing is removed.")
@@ -348,14 +384,6 @@ struct SettingsView: View {
         case "qwen3_1_7b": "Higher quality · best on Pro/Max"
         case "llama3_2_1b": "1B · fastest, lower quality"
         default: "GGUF · llama.cpp"
-        }
-    }
-
-    private func cleanupSubtitle(_ level: AppConfig.Cleanup.Level) -> String {
-        switch level {
-        case .verbatim: "Nothing removed — exactly what you said."
-        case .fillers: "Removes fillers (um, uh, er) only. Safe default."
-        case .standard: "Fillers + self-correction resolution (opt-in)."
         }
     }
 

@@ -64,19 +64,23 @@ struct MenuBarView: View {
             }
         }
         if pipeline.canUndoToRaw {
-            Button("Undo last Auto-Clean (paste raw)") { pipeline.reinsertLastRaw() }
+            // The Settings caption points here by this name (SelfRepairCopy).
+            Button("\(SelfRepairCopy.undoItem) (paste raw)") { pipeline.reinsertLastRaw() }
         }
         if pipeline.llmAvailable {
-            Toggle("Raw mode (skip AI cleanup)", isOn: Binding(
-                get: { pipeline.rawMode },
-                set: { _ in pipeline.toggleRawMode() }
+            // Saved across launches; on, the model is not even loaded.
+            Toggle("Rules only — no AI rewrite", isOn: Binding(
+                get: { pipeline.rulesOnly },
+                set: { pipeline.rulesOnly = $0 }
             ))
             Toggle("Match app style (Slack casual, Mail formal…)", isOn: Binding(
                 get: { pipeline.contextAwareStyle },
                 set: { pipeline.contextAwareStyle = $0 }
             ))
-        } else if case .idle = pipeline.state {
-            Text("AI cleanup off (model not installed)").font(.caption)
+            .disabled(pipeline.rulesOnly)   // the style steers the AI rewrite only
+        } else if case .idle = pipeline.state, let note = pipeline.formattingModelStatus.menuNote {
+            // Not installed or failed to load: each says which.
+            Text(note).font(.caption)
         }
         if update.showUpdatePill, case .available(let tag, _) = update.availability {
             Divider()
@@ -100,7 +104,9 @@ struct MenuBarView: View {
             .disabled(update.isChecking)
         Text("whispr·bro \(update.currentVersion)").font(.caption)
 
-        Text("Hold Right ⌥ to dictate · double-tap to lock hands-free")
+        Text(pipeline.dictateKeyLabel.map {
+            "Hold \($0) to dictate · double-tap for hands-free, press again to finish"
+        } ?? "No dictate shortcut — set one in Settings")
         Button("Quit whispr-bro") {
             NSApplication.shared.terminate(nil)
         }
@@ -126,8 +132,9 @@ struct MenuBarView: View {
         case .needsPermissions: "⚠️ Permissions needed"
         case .modelsMissing: "⚠️ ASR models not installed"
         case .loadingModels: "Loading models…"
-        case .idle: "Ready — hold Right ⌥ and speak"
-        case .recording: "● Recording…"
+        case .idle: pipeline.dictateKeyLabel.map { "Ready — hold \($0) and speak" }
+            ?? "Ready — no dictate shortcut set"
+        case .recording: pipeline.isLocked ? "● Hands-free — \(pipeline.handsFreeExitHint)" : "● Recording…"
         case .transcribing: "Transcribing…"
         case .inserting: "Inserting…"
         case .error: "⚠️ Error"

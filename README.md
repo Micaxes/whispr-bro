@@ -9,7 +9,7 @@ Hold a hotkey, speak, release: your words are transcribed on the Apple Neural En
 | ASR + LLM inference | Cloud (Baseten/AWS) | **On-device** |
 | Screen context | Sent to servers | **Never leaves the process** |
 | Works offline | No | **Only** works offline |
-| Latency (end-of-speech → text) | ~700ms p99 | ~480–650ms target |
+| Latency (end-of-speech → text) | ~700ms p99 | ~480–650ms target (a normal dictation; a 5-minute hands-free one measured ~1.8s once, LLM stage skipped) |
 
 ## How it works
 
@@ -23,13 +23,15 @@ The full architecture — mermaid diagrams, component/latency/model/privacy tabl
 Runnable. All build milestones (tracked as a Gitmoot goal, see the spec) are merged:
 
 - **task-007** — walking skeleton: push-to-talk hotkey → Parakeet ASR → paste (~90ms ASR on M2 Pro)
-- **task-008** — VAD (silence-trim + hands-free lock), password-field refusal, tap watchdog, waveform HUD
+- **task-008** — VAD (silence-trim), hands-free lock, password-field refusal, tap watchdog, waveform HUD
+- **formatting** — spoken layout (lists, quotations, paragraph breaks) + inferred numbered lists; measured in `docs/formatting-benchmark.md` (5/18 → 13/18)
 - **task-009** — in-process llama.cpp auto-edit stage (Qwen2.5-1.5B on Metal, frozen from an [on-device measurement gate](docs/llm-measurement-gate.md)); end-to-end ~305–574ms
 - **task-010** — context-aware per-app formatting styles (Slack casual / Mail formal / IDE verbatim)
 - **task-011** — personal dictionary + hand-editable TOML config
 - **task-012** — searchable local history (GRDB + SQLite FTS5)
 - **task-013** — hardening + offline proof (CI symbol audit, `connect()` tripwire, tcpdump capture, on-disk sha256 verify)
 - **task-014** — Auto-Clean: deterministic filler removal + LLM self-correction resolution
+- **self-repair rules** — the repairs a speaker makes mid-dictation (a word said twice, a cut-off word, a restart, "Thursday, no wait, Friday", "scratch that") removed by deterministic, deletion-only rules before the AI rewrite, in under a millisecond; on the maintainer's own dictations 23 of 33 fixed with zero damage, where the AI rewrite alone managed at most 8 — see [`docs/self-repair.md`](docs/self-repair.md). **Rules only — no AI rewrite** (menu bar / Settings, off by default) runs the deterministic path alone and keeps the model out of memory (Command Mode loads it to edit a selection, then frees it); **Fix self-corrections** (Settings › Auto-Clean, `[cleanup] self_repair` in `config.toml`, on by default) turns the rules off on their own, leaving the filler strip exactly as it was before them
 
 Recent additions:
 
@@ -39,15 +41,19 @@ Recent additions:
 ## Build & run
 
 ```bash
-scripts/build-llama-xcframework.sh   # build llama.cpp -> Vendor/llama.xcframework (needs Xcode + `brew install cmake`)
+scripts/build-llama-xcframework.sh   # build llama.cpp (+ scripts/patches/llama.cpp) -> Vendor/llama.xcframework (needs Xcode + `brew install cmake`); re-run after pulling a patch change, it is incremental
 scripts/fetch-models.sh              # English ASR (Parakeet v2) + VAD (Silero), ~465MB, checksum-pinned
 scripts/fetch-models.sh multilang    # ALSO fetch Parakeet v3 for Italian/Spanish (~465MB more; optional, checksum-pinned)
 scripts/fetch-llm-models.sh          # default auto-edit LLM (Qwen2.5-1.5B, ~940MB); or `all` for the benchmark set
 scripts/make-signing-cert.sh         # one-time: stable self-signed cert so TCC grants survive rebuilds
-scripts/make-app.sh                  # build + bundle dist/WhisprBro.app (prints the `open` command)
+scripts/make-app.sh                  # build + bundle dist/WhisprBro.app (prints the `open` command); refuses a framework built from other patches
 ```
 
-`whispr-bench` is the measurement harness: `whispr-bench file|mic|vad|llm|e2e …` (times each pipeline stage on your machine).
+Launch the app again (Spotlight, Finder, Raycast, `open -a WhisprBro`) and it opens its window — the way in when the menu-bar icon is hidden behind the notch. On a notched Mac a full menu bar silently drops the icons that don't fit; whispr-bro notices (it reads its own item's frame from the accessibility tree — no polling: at launch, on a display change, after a dictation, when you come back to the app, when the window opens) and says so on its HUD, "Icon hidden: open whispr-bro again", at most once a day and three times in all. The window then carries a banner with a button to the right System Settings pane; once you have seen it, the HUD stays quiet.
+
+`whispr-bench` is the measurement harness: `whispr-bench file|mic|vad|llm|e2e …` (times each pipeline stage on your machine), and `whispr-bench repairs` runs the self-repair rules alone — per-rule fires, latency, and the byte-parity check against their reference implementation.
+
+It also carries the dictation quality benchmark — `whispr-bench eval` / `lint` / `leaderboard` / `history-export`, driven by `scripts/bench-eval.sh` — graded on F/Fi/M and a composite score instead of eyeballed, plus the human rating loop behind it (`whispr-bench rate` / `gold` / `calibrate`: a 5-second-per-row triage that turns SHIP/FIX/WRONG into golds and refuses to call the metric calibrated until it agrees with the maintainer at weighted κ ≥ 0.6 on ≥ 100 rated rows); see [`docs/eval-benchmark.md`](docs/eval-benchmark.md).
 
 ## Requirements
 

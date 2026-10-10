@@ -62,8 +62,6 @@ struct EchoWMark: View {
     /// 3 (default), 2, or 1 stroke — the doc collapses strokes at small sizes.
     var strokes: Int = 3
 
-    @State private var pulse = false
-
     // Polylines in the 150×100 viewBox (front is leftmost/solid).
     private static let front: [CGPoint] =
         [.init(x: 16, y: 33), .init(x: 34, y: 61), .init(x: 52, y: 39), .init(x: 72, y: 65), .init(x: 92, y: 26)]
@@ -82,25 +80,23 @@ struct EchoWMark: View {
             let dy = (geo.size.height - 39 * s) / 2
 
             ZStack {
-                if strokes >= 3 {
-                    stroke(Self.back, s, dx, dy, 8.5 * s)
-                        .opacity(listening ? (pulse ? 0.5 : 0.1) : 0.16)
-                        .animation(rippleAnim(delay: 0.28), value: pulse)
-                }
-                if strokes >= 2 {
-                    stroke(Self.middle, s, dx, dy, 8.5 * s)
-                        .opacity(listening ? (pulse ? 0.5 : 0.1) : 0.38)
-                        .animation(rippleAnim(delay: 0), value: pulse)
+                if listening {
+                    // The ripple is its own view and exists ONLY while listening,
+                    // so its repeatForever animators die with it. Switching an
+                    // implicit repeatForever "off" never stops it: SwiftUI keeps the
+                    // old animator and stacks a new one each time listening flips,
+                    // so a hidden HUD kept re-rendering at display rate (120 Hz)
+                    // forever, costlier with every dictation.
+                    EchoRipple(
+                        back: strokes >= 3 ? stroke(Self.back, s, dx, dy, 8.5 * s) : nil,
+                        middle: strokes >= 2 ? stroke(Self.middle, s, dx, dy, 8.5 * s) : nil)
+                } else {
+                    if strokes >= 3 { stroke(Self.back, s, dx, dy, 8.5 * s).opacity(0.16) }
+                    if strokes >= 2 { stroke(Self.middle, s, dx, dy, 8.5 * s).opacity(0.38) }
                 }
                 stroke(Self.front, s, dx, dy, 9 * s).opacity(1)
             }
-            .onAppear { pulse = listening }
-            .onChange(of: listening) { _, newValue in pulse = newValue }
         }
-    }
-
-    private func rippleAnim(delay: Double) -> Animation? {
-        listening ? .easeInOut(duration: 1.7).repeatForever(autoreverses: true).delay(delay) : nil
     }
 
     private func stroke(_ pts: [CGPoint], _ s: CGFloat, _ dx: CGFloat, _ dy: CGFloat, _ lw: CGFloat) -> some View {
@@ -111,6 +107,27 @@ struct EchoWMark: View {
             }
         }
         .stroke(color, style: StrokeStyle(lineWidth: lw, lineCap: .round, lineJoin: .round))
+    }
+}
+
+/// The `wb-ripple` motion (opacity 0.1↔0.5, 1.7s, back stroke delayed 0.28s).
+/// Insert it to start the pulse, remove it to stop — never toggle it.
+private struct EchoRipple<Stroke: View>: View {
+    let back: Stroke?
+    let middle: Stroke?
+    @State private var pulse = false
+    private static var ripple: Animation { .easeInOut(duration: 1.7).repeatForever(autoreverses: true) }
+
+    var body: some View {
+        ZStack {
+            if let back {
+                back.opacity(pulse ? 0.5 : 0.1).animation(Self.ripple.delay(0.28), value: pulse)
+            }
+            if let middle {
+                middle.opacity(pulse ? 0.5 : 0.1).animation(Self.ripple, value: pulse)
+            }
+        }
+        .onAppear { pulse = true }
     }
 }
 

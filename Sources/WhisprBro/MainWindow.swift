@@ -22,7 +22,11 @@ struct MainWindowView: View {
         BrandWindow(title: "whispr·bro") {
             HStack(spacing: 0) {
                 sidebar
-                detail
+                VStack(spacing: 0) {
+                    // His way back in when the icon is gone, and why it is gone.
+                    MenuBarBannerSlot()
+                    detail
+                }
             }
         }
         .frame(minWidth: 940, minHeight: 620)

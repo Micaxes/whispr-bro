@@ -64,9 +64,12 @@ public struct TranscriptScore: Sendable {
     // MARK: - Scoring
 
     public static func score(hypothesis: String, gold: String) -> TranscriptScore {
-        let (goldTokens, goldOrphans) = tokenize(gold)
-        let (hypTokens, hypOrphans) = tokenize(hypothesis)
-        let (errors, pairs) = align(goldTokens, hypTokens)
+        let (goldTokens, goldOrphans) = Align.tokenize(gold)
+        let (hypTokens, hypOrphans) = Align.tokenize(hypothesis)
+        // Keyed on the normalized word, NOT the canonical one: an ITN rewrite
+        // ("fifty-four" → "54") is still a word edit on this continuity axis;
+        // forgiving it is the quality scorer's job.
+        let alignment = Align.align(goldTokens, hypTokens, by: \.normalized)
 
         // Marks in gold/hypothesis, keyed by the (aligned) gold word index —
         // a multiset min per aligned pair counts a mark only when it sits on
@@ -74,7 +77,7 @@ public struct TranscriptScore: Sendable {
         // no word core, e.g. the middle of "eggs, , milk") can never match.
         var matched = 0
         var comparable = 0, caseHits = 0
-        for (gi, hj) in pairs {
+        for (gi, hj) in alignment.pairs {
             matched += multisetOverlap(goldTokens[gi].marks, hypTokens[hj].marks)
             if goldTokens[gi].normalized == hypTokens[hj].normalized {
                 comparable += 1
@@ -82,63 +85,13 @@ public struct TranscriptScore: Sendable {
             }
         }
         return TranscriptScore(
-            wordErrors: errors,
+            wordErrors: alignment.errors,
             goldWordCount: goldTokens.count,
             punctMatched: matched,
-            punctInHypothesis: hypTokens.reduce(hypOrphans) { $0 + $1.marks.count },
-            punctInGold: goldTokens.reduce(goldOrphans) { $0 + $1.marks.count },
+            punctInHypothesis: hypTokens.reduce(hypOrphans.count) { $0 + $1.marks.count },
+            punctInGold: goldTokens.reduce(goldOrphans.count) { $0 + $1.marks.count },
             caseMatched: caseHits,
             caseComparable: comparable)
-    }
-
-    // MARK: - Tokenization
-
-    /// One whitespace-delimited word with its boundary punctuation pulled off.
-    private struct Token {
-        var normalized: String   // lowercased word core (see `wordChar` note)
-        var cased: String        // word core with original casing
-        var marks: [Character]   // leading + trailing marks from `scoredMarks`
-    }
-
-    private static let scoredMarks: Set<Character> = [".", ",", "!", "?", ";", ":", "¿", "¡"]
-
-    /// In-word characters kept in the normalized form — letters/digits plus
-    /// apostrophe/hyphen/underscore, consistent with FillerStripper's
-    /// `wordChar` (so "it's" ≠ "its" and "top-notch" stays one token).
-    private static func isWordChar(_ c: Character) -> Bool {
-        c.isLetter || c.isNumber || c == "'" || c == "-" || c == "_"
-    }
-
-    /// Split on whitespace; peel boundary marks off each chunk. Non-scored
-    /// boundary symbols (quotes, brackets, dashes, …) are TRANSPARENT to the
-    /// peel — dropped, but the peel continues past them — so a mark next to
-    /// one still counts: «plan."» carries its period. A chunk with
-    /// no word core (a stray "," between words) attaches its marks to the
-    /// previous word — or is returned in the orphan count when there is none —
-    /// so residue punctuation still counts against precision/recall.
-    private static func tokenize(_ text: String) -> (tokens: [Token], orphanMarks: Int) {
-        var tokens: [Token] = []
-        var orphans = 0
-        for chunk in text.split(whereSeparator: \.isWhitespace) {
-            var chars = Array(chunk).map { $0 == "’" ? Character("'") : $0 }
-            var marks: [Character] = []
-            while let f = chars.first, !isWordChar(f) {
-                if scoredMarks.contains(f) { marks.append(f) }
-                chars.removeFirst()
-            }
-            while let l = chars.last, !isWordChar(l) {
-                if scoredMarks.contains(l) { marks.append(l) }
-                chars.removeLast()
-            }
-            let cased = String(chars.filter { isWordChar($0) })
-            if cased.isEmpty {
-                if tokens.isEmpty { orphans += marks.count }
-                else { tokens[tokens.count - 1].marks += marks }
-                continue
-            }
-            tokens.append(Token(normalized: cased.lowercased(), cased: cased, marks: marks))
-        }
-        return (tokens, orphans)
     }
 
     /// Elements of `a` also present in `b`, as multisets (min of the counts).
@@ -152,39 +105,5 @@ public struct TranscriptScore: Sendable {
             overlap += 1
         }
         return overlap
-    }
-
-    // MARK: - Alignment
-
-    /// Word-level Levenshtein with backtrace (fixtures are sentence-sized, so
-    /// the O(n·m) table is trivial). Returns the edit count and the aligned
-    /// (gold, hypothesis) index pairs (matches AND substitutions).
-    private static func align(_ gold: [Token], _ hyp: [Token]) -> (errors: Int, pairs: [(Int, Int)]) {
-        var dp = Array(repeating: Array(repeating: 0, count: hyp.count + 1), count: gold.count + 1)
-        for i in 0...gold.count { dp[i][0] = i }
-        for j in 0...hyp.count { dp[0][j] = j }
-        if !gold.isEmpty && !hyp.isEmpty {
-            for i in 1...gold.count {
-                for j in 1...hyp.count {
-                    let sub = gold[i - 1].normalized == hyp[j - 1].normalized ? 0 : 1
-                    dp[i][j] = min(dp[i - 1][j - 1] + sub, dp[i - 1][j] + 1, dp[i][j - 1] + 1)
-                }
-            }
-        }
-        // Backtrace, preferring the diagonal so a substitution beats a
-        // delete+insert pair of the same cost (keeps punctuation keyed).
-        var pairs: [(Int, Int)] = []
-        var i = gold.count, j = hyp.count
-        while i > 0 || j > 0 {
-            if i > 0, j > 0,
-               dp[i][j] == dp[i - 1][j - 1] + (gold[i - 1].normalized == hyp[j - 1].normalized ? 0 : 1) {
-                pairs.append((i - 1, j - 1)); i -= 1; j -= 1
-            } else if i > 0, dp[i][j] == dp[i - 1][j] + 1 {
-                i -= 1   // deletion (gold word the hypothesis dropped)
-            } else {
-                j -= 1   // insertion (hypothesis word gold doesn't have)
-            }
-        }
-        return (dp[gold.count][hyp.count], pairs)
     }
 }

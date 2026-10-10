@@ -1,0 +1,600 @@
+{
+ "about": "What whispr-bro did before the self-repair rules (2f70cab), recorded from that build over commit-safe eval rows (synth, redteam and holdout-v2 sets: written for the eval, no dictation). strip / stripKeepingRepeats: the filler strip with collapse_stutters on / off. formatterInput / final: a dictation at Fillers or Standard (the same before the rules), identity formatter, no dictionary, by register (comma-joined registers share a result). With [cleanup] self_repair = false the app must reproduce every one.",
+ "rows": [
+  {
+   "id": "synth-set:s0002",
+   "input": "I want the tests to run before before before every commit, so add a pre-commit hook for that.",
+   "strip": "I want the tests to run before before before every commit, so add a pre-commit hook for that.",
+   "stripKeepingRepeats": "I want the tests to run before before before every commit, so add a pre-commit hook for that.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "I want the tests to run before before before every commit, so add a pre-commit hook for that."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "I want the tests to run before before before every commit, so add a pre-commit hook for that."
+   }
+  },
+  {
+   "id": "synth-set:s0040",
+   "input": "Look at the bu the build script and see if it, it's still using the old cache path.",
+   "strip": "Look at the bu the build script and see if it, it's still using the old cache path.",
+   "stripKeepingRepeats": "Look at the bu the build script and see if it, it's still using the old cache path.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Look at the bu the build script and see if it, it's still using the old cache path."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Look at the bu the build script and see if it, it's still using the old cache path."
+   }
+  },
+  {
+   "id": "synth-set:s0080",
+   "input": "Get the car washed and ch check the tire pressure, the front left one keeps dropping, losing air.",
+   "strip": "Get the car washed and ch check the tire pressure, the front left one keeps dropping, losing air.",
+   "stripKeepingRepeats": "Get the car washed and ch check the tire pressure, the front left one keeps dropping, losing air.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Get the car washed and ch check the tire pressure, the front left one keeps dropping, losing air."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Get the car washed and ch check the tire pressure, the front left one keeps dropping, losing air."
+   }
+  },
+  {
+   "id": "synth-set:s0144",
+   "input": "This week I wan want to get three runs in, with the long one on Saturday.",
+   "strip": "This week I wan want to get three runs in, with the long one on Saturday.",
+   "stripKeepingRepeats": "This week I wan want to get three runs in, with the long one on Saturday.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "This week I wan want to get three runs in, with the long one on Saturday."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "This week I wan want to get three runs in, with the long one on Saturday."
+   }
+  },
+  {
+   "id": "synth-set:s0215",
+   "input": "Write the cleaned data to a new file and never overwrite the original. Add a dry run flag that prints what would change change without writing anything. The exports from 2023 have an extra column we can ignore.",
+   "strip": "Write the cleaned data to a new file and never overwrite the original. Add a dry run flag that prints what would change change without writing anything. The exports from 2023 have an extra column we can ignore.",
+   "stripKeepingRepeats": "Write the cleaned data to a new file and never overwrite the original. Add a dry run flag that prints what would change change without writing anything. The exports from 2023 have an extra column we can ignore.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Write the cleaned data to a new file and never overwrite the original. Add a dry run flag that prints what would change change without writing anything. The exports from 2023 have an extra column we can ignore."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Write the cleaned data to a new file and never overwrite the original. Add a dry run flag that prints what would change change without writing anything. The exports from 2023 have an extra column we can ignore."
+   }
+  },
+  {
+   "id": "synth-set:s0003",
+   "input": "Let's ship it Thursday, no wait, Friday, the client demo is Thursday morning.",
+   "strip": "Let's ship it Thursday, no wait, Friday, the client demo is Thursday morning.",
+   "stripKeepingRepeats": "Let's ship it Thursday, no wait, Friday, the client demo is Thursday morning.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Let's ship it Thursday, no wait, Friday, the client demo is Thursday morning."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Let's ship it Thursday, no wait, Friday, the client demo is Thursday morning."
+   }
+  },
+  {
+   "id": "synth-set:s0026",
+   "input": "It's failing on the second, sorry, the third test case, the one with the long input.",
+   "strip": "It's failing on the second, sorry, the third test case, the one with the long input.",
+   "stripKeepingRepeats": "It's failing on the second, sorry, the third test case, the one with the long input.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "It's failing on the second, sorry, the third test case, the one with the long input."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "It's failing on the second, sorry, the third test case, the one with the long input."
+   }
+  },
+  {
+   "id": "synth-set:s0051",
+   "input": "Tuesday, no, Wednesday works.",
+   "strip": "Tuesday, no, Wednesday works.",
+   "stripKeepingRepeats": "Tuesday, no, Wednesday works.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Tuesday, no, Wednesday works."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Tuesday, no, Wednesday works."
+   }
+  },
+  {
+   "id": "synth-set:s0069",
+   "input": "Our churn dropped from seven, sorry, eight percent to under three after the redesign.",
+   "strip": "Our churn dropped from seven, sorry, eight percent to under three after the redesign.",
+   "stripKeepingRepeats": "Our churn dropped from seven, sorry, eight percent to under three after the redesign.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Our churn dropped from seven, sorry, eight percent to under three after the redesign."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Our churn dropped from seven, sorry, eight percent to under three after the redesign."
+   }
+  },
+  {
+   "id": "synth-set:s0089",
+   "input": "Ten, no, twelve minutes.",
+   "strip": "Ten, no, twelve minutes.",
+   "stripKeepingRepeats": "Ten, no, twelve minutes.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Ten, no, twelve minutes."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Ten, no, twelve minutes."
+   }
+  },
+  {
+   "id": "synth-set:s0162",
+   "input": "I slept badly, so that probably explains it. Tomorrow I'll swap the tempo run for an easy swim, I meant spin. I have, stretch for ten minutes after every run this week.",
+   "strip": "I slept badly, so that probably explains it. Tomorrow I'll swap the tempo run for an easy swim, I meant spin. I have, stretch for ten minutes after every run this week.",
+   "stripKeepingRepeats": "I slept badly, so that probably explains it. Tomorrow I'll swap the tempo run for an easy swim, I meant spin. I have, stretch for ten minutes after every run this week.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "I slept badly, so that probably explains it. Tomorrow I'll swap the tempo run for an easy swim, I meant spin. I have, stretch for ten minutes after every run this week."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "I slept badly, so that probably explains it. Tomorrow I'll swap the tempo run for an easy swim, I meant spin. I have, stretch for ten minutes after every run this week."
+   }
+  },
+  {
+   "id": "redteam-set:rp001",
+   "input": "Can you can you check if the nightly build passed?",
+   "strip": "Can you can you check if the nightly build passed?",
+   "stripKeepingRepeats": "Can you can you check if the nightly build passed?",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Can you can you check if the nightly build passed?"
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Can you can you check if the nightly build passed?"
+   }
+  },
+  {
+   "id": "redteam-set:rp015",
+   "input": "If you if you have time today, give me a call.",
+   "strip": "If you if you have time today, give me a call.",
+   "stripKeepingRepeats": "If you if you have time today, give me a call.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "If you if you have time today, give me a call."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "If you if you have time today, give me a call."
+   }
+  },
+  {
+   "id": "redteam-set:rp032",
+   "input": "We're at the, the bakery on Fifth.",
+   "strip": "We're at the, the bakery on Fifth.",
+   "stripKeepingRepeats": "We're at the, the bakery on Fifth.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "We're at the, the bakery on Fifth."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "We're at the, the bakery on Fifth."
+   }
+  },
+  {
+   "id": "redteam-set:rp114",
+   "input": "The deb debugger won't attach.",
+   "strip": "The deb debugger won't attach.",
+   "stripKeepingRepeats": "The deb debugger won't attach.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "The deb debugger won't attach."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "The deb debugger won't attach."
+   }
+  },
+  {
+   "id": "redteam-set:rp125",
+   "input": "Add the bu button to the toolbar.",
+   "strip": "Add the bu button to the toolbar.",
+   "stripKeepingRepeats": "Add the bu button to the toolbar.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Add the bu button to the toolbar."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Add the bu button to the toolbar."
+   }
+  },
+  {
+   "id": "redteam-set:rn536",
+   "input": "I'm 34, actually 35 next week.",
+   "strip": "I'm 34, actually 35 next week.",
+   "stripKeepingRepeats": "I'm 34, actually 35 next week.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "I'm 34, actually 35 next week."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "I'm 34, actually 35 next week."
+   }
+  },
+  {
+   "id": "redteam-set:rp141",
+   "input": "Ask Maria, sorry, ask Paolo.",
+   "strip": "Ask Maria, sorry, ask Paolo.",
+   "stripKeepingRepeats": "Ask Maria, sorry, ask Paolo.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Ask Maria, sorry, ask Paolo."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Ask Maria, sorry, ask Paolo."
+   }
+  },
+  {
+   "id": "redteam-set:rp158",
+   "input": "Return a list, or rather a tuple.",
+   "strip": "Return a list, or rather a tuple.",
+   "stripKeepingRepeats": "Return a list, or rather a tuple.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Return a list, or rather a tuple."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Return a list, or rather a tuple."
+   }
+  },
+  {
+   "id": "redteam-set:rp178",
+   "input": "Add a loading spinner. Scratch that. Just disable the button while it loads.",
+   "strip": "Add a loading spinner. Scratch that. Just disable the button while it loads.",
+   "stripKeepingRepeats": "Add a loading spinner. Scratch that. Just disable the button while it loads.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Add a loading spinner. Scratch that. Just disable the button while it loads."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Add a loading spinner. Scratch that. Just disable the button while it loads."
+   }
+  },
+  {
+   "id": "redteam-set:rp189",
+   "input": "Run 10, wait, 12 miles on Sunday.",
+   "strip": "Run 10, wait, 12 miles on Sunday.",
+   "stripKeepingRepeats": "Run 10, wait, 12 miles on Sunday.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Run 10, wait, 12 miles on Sunday."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Run 10, wait, 12 miles on Sunday."
+   }
+  },
+  {
+   "id": "redteam-set:rp200",
+   "input": "Room 112, sorry, 121.",
+   "strip": "Room 112, sorry, 121.",
+   "stripKeepingRepeats": "Room 112, sorry, 121.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Room 112, sorry, 121."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Room 112, sorry, 121."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hn009",
+   "input": "Does the new build build on ARM?",
+   "strip": "Does the new build build on ARM?",
+   "stripKeepingRepeats": "Does the new build build on ARM?",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Does the new build build on ARM?"
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Does the new build build on ARM?"
+   }
+  },
+  {
+   "id": "holdout-v2-set:hn062",
+   "input": "Come over over the holidays.",
+   "strip": "Come over over the holidays.",
+   "stripKeepingRepeats": "Come over over the holidays.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Come over over the holidays."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Come over over the holidays."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hn075",
+   "input": "Try it try it, you'll like it.",
+   "strip": "Try it try it, you'll like it.",
+   "stripKeepingRepeats": "Try it try it, you'll like it.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Try it try it, you'll like it."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Try it try it, you'll like it."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hp006",
+   "input": "I need to do do the release notes.",
+   "strip": "I need to do do the release notes.",
+   "stripKeepingRepeats": "I need to do do the release notes.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "I need to do do the release notes."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "I need to do do the release notes."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hp012",
+   "input": "The deploy deploy failed on staging.",
+   "strip": "The deploy deploy failed on staging.",
+   "stripKeepingRepeats": "The deploy deploy failed on staging.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "The deploy deploy failed on staging."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "The deploy deploy failed on staging."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hn077",
+   "input": "Please cc me on the reply.",
+   "strip": "Please cc me on the reply.",
+   "stripKeepingRepeats": "Please cc me on the reply.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Please cc me on the reply."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Please cc me on the reply."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hn080",
+   "input": "The gm said yes.",
+   "strip": "The gm said yes.",
+   "stripKeepingRepeats": "The gm said yes.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "The gm said yes."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "The gm said yes."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hn083",
+   "input": "Read the fs module docs.",
+   "strip": "Read the fs module docs.",
+   "stripKeepingRepeats": "Read the fs module docs.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Read the fs module docs."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Read the fs module docs."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hn099",
+   "input": "She's 7, actually 8 next month.",
+   "strip": "She's 7, actually 8 next month.",
+   "stripKeepingRepeats": "She's 7, actually 8 next month.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "She's 7, actually 8 next month."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "She's 7, actually 8 next month."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hp027",
+   "input": "Can we do 4? I mean 5?",
+   "strip": "Can we do 4? I mean 5?",
+   "stripKeepingRepeats": "Can we do 4? I mean 5?",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Can we do 4? I mean 5?"
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Can we do 4? I mean 5?"
+   }
+  },
+  {
+   "id": "holdout-v2-set:hp030",
+   "input": "Let's meet Thursday, no wait, Friday at 6.",
+   "strip": "Let's meet Thursday, no wait, Friday at 6.",
+   "stripKeepingRepeats": "Let's meet Thursday, no wait, Friday at 6.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Let's meet Thursday, no wait, Friday at 6."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Let's meet Thursday, no wait, Friday at 6."
+   }
+  },
+  {
+   "id": "redteam-set:rn601",
+   "input": "Thanks period new line new line Best comma Marco",
+   "strip": "Thanks period new line new line Best comma Marco",
+   "stripKeepingRepeats": "Thanks period new line new line Best comma Marco",
+   "formatterInput": {
+    "browser,mail,messaging,notes,unknown": "Thanks period. Best comma Marco",
+    "ide": "Thanks period Best comma Marco",
+    "terminal": "Thanks period new line new line Best comma Marco"
+   },
+   "final": {
+    "ide,messaging,notes": "Thanks period\nBest comma Marco",
+    "browser,mail,unknown": "Thanks period\nBest comma Marco.",
+    "terminal": "Thanks period new line new line Best comma Marco"
+   }
+  },
+  {
+   "id": "synth-set:s0043",
+   "input": "Um, can you also check whether the sh shortcut conflicts with anything in Xcode?",
+   "strip": "can you also check whether the sh shortcut conflicts with anything in Xcode?",
+   "stripKeepingRepeats": "can you also check whether the sh shortcut conflicts with anything in Xcode?",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "can you also check whether the sh shortcut conflicts with anything in Xcode?",
+    "ide,notes,terminal": "Um, can you also check whether the sh shortcut conflicts with anything in Xcode?"
+   },
+   "final": {
+    "messaging": "can you also check whether the sh shortcut conflicts with anything in Xcode?",
+    "browser,mail,unknown": "Can you also check whether the sh shortcut conflicts with anything in Xcode?",
+    "ide,notes,terminal": "Um, can you also check whether the sh shortcut conflicts with anything in Xcode?"
+   }
+  },
+  {
+   "id": "synth-set:s0066",
+   "input": "Uh, the build is green now, so we can, can you tag it as the release candidate?",
+   "strip": "the build is green now, so we can, can you tag it as the release candidate?",
+   "stripKeepingRepeats": "the build is green now, so we can, can you tag it as the release candidate?",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "the build is green now, so we can, can you tag it as the release candidate?",
+    "ide,notes,terminal": "Uh, the build is green now, so we can, can you tag it as the release candidate?"
+   },
+   "final": {
+    "messaging": "the build is green now, so we can, can you tag it as the release candidate?",
+    "browser,mail,unknown": "The build is green now, so we can, can you tag it as the release candidate?",
+    "ide,notes,terminal": "Uh, the build is green now, so we can, can you tag it as the release candidate?"
+   }
+  },
+  {
+   "id": "synth-set:s0120",
+   "input": "Uh, each step should take less than a minute and can be skipped. It's. Pricing and the signup form stay out of scope for this work.",
+   "strip": "each step should take less than a minute and can be skipped. It's. Pricing and the signup form stay out of scope for this work.",
+   "stripKeepingRepeats": "each step should take less than a minute and can be skipped. It's. Pricing and the signup form stay out of scope for this work.",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "each step should take less than a minute and can be skipped. It's. Pricing and the signup form stay out of scope for this work.",
+    "ide,notes,terminal": "Uh, each step should take less than a minute and can be skipped. It's. Pricing and the signup form stay out of scope for this work."
+   },
+   "final": {
+    "messaging": "each step should take less than a minute and can be skipped. It's. Pricing and the signup form stay out of scope for this work.",
+    "browser,mail,unknown": "Each step should take less than a minute and can be skipped. It's. Pricing and the signup form stay out of scope for this work.",
+    "ide,notes,terminal": "Uh, each step should take less than a minute and can be skipped. It's. Pricing and the signup form stay out of scope for this work."
+   }
+  },
+  {
+   "id": "synth-set:s0134",
+   "input": "Uh, the share extension n needs its own profile too. Upload the build once it validates, but don't submit it for review. Write the exact command you ran into the release notes.",
+   "strip": "the share extension n needs its own profile too. Upload the build once it validates, but don't submit it for review. Write the exact command you ran into the release notes.",
+   "stripKeepingRepeats": "the share extension n needs its own profile too. Upload the build once it validates, but don't submit it for review. Write the exact command you ran into the release notes.",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "the share extension n needs its own profile too. Upload the build once it validates, but don't submit it for review. Write the exact command you ran into the release notes.",
+    "ide,notes,terminal": "Uh, the share extension n needs its own profile too. Upload the build once it validates, but don't submit it for review. Write the exact command you ran into the release notes."
+   },
+   "final": {
+    "messaging": "the share extension n needs its own profile too. Upload the build once it validates, but don't submit it for review. Write the exact command you ran into the release notes.",
+    "browser,mail,unknown": "The share extension n needs its own profile too. Upload the build once it validates, but don't submit it for review. Write the exact command you ran into the release notes.",
+    "ide,notes,terminal": "Uh, the share extension n needs its own profile too. Upload the build once it validates, but don't submit it for review. Write the exact command you ran into the release notes."
+   }
+  },
+  {
+   "id": "synth-set:s0193",
+   "input": "Um, add a toggle in the menu to turn the cleanup off for testing, sorry, debugging.",
+   "strip": "add a toggle in the menu to turn the cleanup off for testing, sorry, debugging.",
+   "stripKeepingRepeats": "add a toggle in the menu to turn the cleanup off for testing, sorry, debugging.",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "add a toggle in the menu to turn the cleanup off for testing, sorry, debugging.",
+    "ide,notes,terminal": "Um, add a toggle in the menu to turn the cleanup off for testing, sorry, debugging."
+   },
+   "final": {
+    "messaging": "add a toggle in the menu to turn the cleanup off for testing, sorry, debugging.",
+    "browser,mail,unknown": "Add a toggle in the menu to turn the cleanup off for testing, sorry, debugging.",
+    "ide,notes,terminal": "Um, add a toggle in the menu to turn the cleanup off for testing, sorry, debugging."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hp001",
+   "input": "Does the the fix work on Intel?",
+   "strip": "Does the fix work on Intel?",
+   "stripKeepingRepeats": "Does the the fix work on Intel?",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "Does the fix work on Intel?",
+    "ide,notes,terminal": "Does the the fix work on Intel?"
+   },
+   "final": {
+    "browser,mail,messaging,unknown": "Does the fix work on Intel?",
+    "ide,notes,terminal": "Does the the fix work on Intel?"
+   }
+  },
+  {
+   "id": "redteam-set:rp026",
+   "input": "The the the issue is the microphone permission.",
+   "strip": "The issue is the microphone permission.",
+   "stripKeepingRepeats": "The the the issue is the microphone permission.",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "The issue is the microphone permission.",
+    "ide,notes,terminal": "The the the issue is the microphone permission."
+   },
+   "final": {
+    "browser,mail,messaging,unknown": "The issue is the microphone permission.",
+    "ide,notes,terminal": "The the the issue is the microphone permission."
+   }
+  },
+  {
+   "id": "redteam-set:rp036",
+   "input": "Pick up the the the dry cleaning on the way home.",
+   "strip": "Pick up the dry cleaning on the way home.",
+   "stripKeepingRepeats": "Pick up the the the dry cleaning on the way home.",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "Pick up the dry cleaning on the way home.",
+    "ide,notes,terminal": "Pick up the the the dry cleaning on the way home."
+   },
+   "final": {
+    "browser,mail,messaging,unknown": "Pick up the dry cleaning on the way home.",
+    "ide,notes,terminal": "Pick up the the the dry cleaning on the way home."
+   }
+  },
+  {
+   "id": "redteam-set:rp002",
+   "input": "I think the the cache is stale again.",
+   "strip": "I think the cache is stale again.",
+   "stripKeepingRepeats": "I think the the cache is stale again.",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "I think the cache is stale again.",
+    "ide,notes,terminal": "I think the the cache is stale again."
+   },
+   "final": {
+    "browser,mail,messaging,unknown": "I think the cache is stale again.",
+    "ide,notes,terminal": "I think the the cache is stale again."
+   }
+  },
+  {
+   "id": "redteam-set:rp035",
+   "input": "Then it it crashes on the second run.",
+   "strip": "Then it crashes on the second run.",
+   "stripKeepingRepeats": "Then it it crashes on the second run.",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "Then it crashes on the second run.",
+    "ide,notes,terminal": "Then it it crashes on the second run."
+   },
+   "final": {
+    "browser,mail,messaging,unknown": "Then it crashes on the second run.",
+    "ide,notes,terminal": "Then it it crashes on the second run."
+   }
+  },
+  {
+   "id": "synth-set:s0242",
+   "input": "Check that the launch at, the launch at login setting still works after the rename. Um, build a release version and give me the path to the app bundle.",
+   "strip": "Check that the launch at, the launch at login setting still works after the rename. build a release version and give me the path to the app bundle.",
+   "stripKeepingRepeats": "Check that the launch at, the launch at login setting still works after the rename. build a release version and give me the path to the app bundle.",
+   "formatterInput": {
+    "browser,mail,messaging,unknown": "Check that the launch at, the launch at login setting still works after the rename. build a release version and give me the path to the app bundle.",
+    "ide,notes,terminal": "Check that the launch at, the launch at login setting still works after the rename. Um, build a release version and give me the path to the app bundle."
+   },
+   "final": {
+    "browser,mail,messaging,unknown": "Check that the launch at, the launch at login setting still works after the rename. build a release version and give me the path to the app bundle.",
+    "ide,notes,terminal": "Check that the launch at, the launch at login setting still works after the rename. Um, build a release version and give me the path to the app bundle."
+   }
+  },
+  {
+   "id": "holdout-v2-set:hn001",
+   "input": "Would the sync sync the drafts before closing?",
+   "strip": "Would the sync sync the drafts before closing?",
+   "stripKeepingRepeats": "Would the sync sync the drafts before closing?",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Would the sync sync the drafts before closing?"
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Would the sync sync the drafts before closing?"
+   }
+  },
+  {
+   "id": "redteam-set:rn444",
+   "input": "Thanks, no need.",
+   "strip": "Thanks, no need.",
+   "stripKeepingRepeats": "Thanks, no need.",
+   "formatterInput": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Thanks, no need."
+   },
+   "final": {
+    "browser,ide,mail,messaging,notes,terminal,unknown": "Thanks, no need."
+   }
+  }
+ ]
+}

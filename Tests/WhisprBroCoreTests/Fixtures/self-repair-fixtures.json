@@ -1,0 +1,4142 @@
+{
+ "about": "C1 v13 rules.py fixtures (invented text); rules 'all' = every rule, 'fillers' = the app's fillers level (R1, R1B, R3 without R3a); guard = the guard a case pins (null: a v1 case). Every guard is on.",
+ "cases": [
+  {
+   "rules": "R1",
+   "input": "we went over over these numbers",
+   "expected": "we went over these numbers",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "right, so so maybe maybe maybe we stop",
+   "expected": "right, so so maybe we stop",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "the dog dog park is open",
+   "expected": "the dog park is open",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "it ran for about About two weeks",
+   "expected": "it ran for about two weeks",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "The the cat sat down",
+   "expected": "The the cat sat down",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "we're just um just checking it",
+   "expected": "we're just checking it",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "look at the last ten, uh, ten runs",
+   "expected": "look at the last ten runs",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "the, the plan works",
+   "expected": "the plan works",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "I, I have the dentist at noon",
+   "expected": "I have the dentist at noon",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "Open a, like, a new tab",
+   "expected": "Open like, a new tab",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "make sure the retry, the retry count resets",
+   "expected": "make sure the retry, the retry count resets",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "make sure the retry, um, the retry count resets",
+   "expected": "make sure the retry count resets",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "we need to we need to ship it",
+   "expected": "we need to ship it",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "the fact that that happened had had an effect",
+   "expected": "the fact that that happened had had an effect",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "what it is is a problem",
+   "expected": "what it is is a problem",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "the review was was moved to Friday",
+   "expected": "the review was moved to Friday",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "it was so so.",
+   "expected": "it was so so.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "so so we shipped it",
+   "expected": "so we shipped it",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "it is very very good and no no no",
+   "expected": "it is very very good and no no no",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "We flew to Bora Bora last May",
+   "expected": "We flew to Bora Bora last May",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "Check, check. Is this on?",
+   "expected": "Check, check. Is this on?",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "it was very, very cold",
+   "expected": "it was very, very cold",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "if you want it, it is yours",
+   "expected": "if you want it, it is yours",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "the code is two two five",
+   "expected": "the code is two two five",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "the the cat",
+   "expected": "the the cat",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "it went over and over and over again",
+   "expected": "it went over and over and over again",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "we read the The Times review",
+   "expected": "we read the The Times review",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "call at AT&T now",
+   "expected": "call at AT&T now",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "please log in in the morning",
+   "expected": "please log in in the morning",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "the old old version still runs",
+   "expected": "the old old version still runs",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "Thank you, thank you so much",
+   "expected": "Thank you, thank you so much",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "I know, I know.",
+   "expected": "I know, I know.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "Slow down. Slow down and read it",
+   "expected": "Slow down. Slow down and read it",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "he typed \"the the\" twice",
+   "expected": "he typed \"the the\" twice",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1B",
+   "input": "list two more server servers here",
+   "expected": "list two more servers here",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1B",
+   "input": "the fix fixes the bug",
+   "expected": "the fix fixes the bug",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1B",
+   "input": "the other server servers files",
+   "expected": "the other server servers files",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "by having it the having it be the goal",
+   "expected": "by having it be the goal",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "I told them to I told you to stop",
+   "expected": "I told you to stop",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "the tickets go that go stale",
+   "expected": "the tickets that go stale",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "check the cache kc cache keys",
+   "expected": "check the cache keys",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "go with a with the blue one",
+   "expected": "go with the blue one",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "send the send it now",
+   "expected": "send it now",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "I saw it in his eyes the eyes of a friend",
+   "expected": "I saw it in his eyes the eyes of a friend",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "I saw her face the face of a friend",
+   "expected": "I saw her face the face of a friend",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "I know what I know",
+   "expected": "I know what I know",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "he asked me to ask you to ask her",
+   "expected": "he asked me to ask you to ask her",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "the skin of the skin",
+   "expected": "the skin of the skin",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "and so on and so on",
+   "expected": "and so on and so on",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "it would be unfair to her to keep it",
+   "expected": "it would be unfair to her to keep it",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "he came from time to time to see us",
+   "expected": "he came from time to time to see us",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "the skirt went whack by whack by whack.",
+   "expected": "the skirt went whack by whack by whack.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "‘Not at all,’ said I, ‘I shall be happy.’",
+   "expected": "‘Not at all,’ said I, ‘I shall be happy.’",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "respect the limit before, um, respect the limit after",
+   "expected": "respect the limit after",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "we walked day by day and side by side",
+   "expected": "we walked day by day and side by side",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "she is the best of the best",
+   "expected": "she is the best of the best",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "you have to walk the walk.",
+   "expected": "you have to walk the walk.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "the kids that kids admire",
+   "expected": "the kids that kids admire",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "it rained and rained all day",
+   "expected": "it rained and rained all day",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "make the page so that the page loads",
+   "expected": "make the page so that the page loads",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "plenty of rice, plenty of beans",
+   "expected": "plenty of rice, plenty of beans",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "return x if x else none",
+   "expected": "return x if x else none",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2B",
+   "input": "I we should leave now",
+   "expected": "We should leave now",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2B",
+   "input": "after World War I she moved",
+   "expected": "after World War I she moved",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2B",
+   "input": "and I it seemed fine",
+   "expected": "and it seemed fine",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2B",
+   "input": "I, we, and they agreed",
+   "expected": "I, we, and they agreed",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2B",
+   "input": "between you and I it",
+   "expected": "between you and I it",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "the desk and the b chair are new",
+   "expected": "the desk and the chair are new",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "check the lo logs from last night",
+   "expected": "check the logs from last night",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "be sur sure it runs",
+   "expected": "be sure it runs",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "dinner t, tomorrow? I can drive",
+   "expected": "dinner tomorrow? I can drive",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "put it in sa, savings when it lands",
+   "expected": "put it in savings when it lands",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "I checked the sto, the stock room",
+   "expected": "I checked the stock room",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "run it after each st each step",
+   "expected": "run it after each step",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "we bought a pen, a pencil and ink",
+   "expected": "we bought a pen, a pencil and ink",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "set the s flag on the regex",
+   "expected": "set the s flag on the regex",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "we need a plan b for this",
+   "expected": "we need a plan b for this",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "label the x axis",
+   "expected": "label the x axis",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "type l s to list it",
+   "expected": "type l s to list it",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "write m, n, and u, l, p, and q, quickly",
+   "expected": "write m, n, and u, l, p, and q, quickly",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "dancing &c, gaily",
+   "expected": "dancing &c, gaily",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "toss it back like that like her",
+   "expected": "toss it back like that like her",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "re index the table",
+   "expected": "re index the table",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "my ex explained it",
+   "expected": "my ex explained it",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "a hot hotel downtown",
+   "expected": "a hot hotel downtown",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "I paid for forty",
+   "expected": "I paid for forty",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "we have 10 k users",
+   "expected": "we have 10 k users",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "and then the end b",
+   "expected": "and then the end b",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "Upsilon Andromedae b is a gas giant",
+   "expected": "Upsilon Andromedae b is a gas giant",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "they went en route to town",
+   "expected": "they went en route to town",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "shove 'em out of the way",
+   "expected": "shove 'em out of the way",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "she ran ranging along the shore",
+   "expected": "she ran ranging along the shore",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "ship it Thursday, no wait, Friday after lunch",
+   "expected": "ship it Friday after lunch",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "we meet in May, I mean in June if that works",
+   "expected": "we meet in June if that works",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Are we meeting Monday? Um I mean Tuesday?",
+   "expected": "Are we meeting Tuesday?",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Ask Diego, I mean Daniel, about the cabin",
+   "expected": "Ask Daniel, about the cabin",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "paint it red, I mean blue",
+   "expected": "paint it blue",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "the panel on the left, I mean right side",
+   "expected": "the panel on the right side",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "send it daily, sorry, weekly on Mondays",
+   "expected": "send it weekly on Mondays",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Delete it, scratch that, keep it.",
+   "expected": "Keep it.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Try the bigger, sorry, smaller model",
+   "expected": "Try the smaller model",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Long run on Saturday, actually Sunday this week",
+   "expected": "Long run on Sunday this week",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "move it to the top, no, the bottom row",
+   "expected": "move it to the bottom row",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "we tested the old, or rather the new build",
+   "expected": "we tested the new build",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "I'm running late, sorry, crazy traffic",
+   "expected": "I'm running late, sorry, crazy traffic",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "No, don't push to main",
+   "expected": "No, don't push to main",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "this isn't actually broken",
+   "expected": "this isn't actually broken",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "that's not what I mean at all",
+   "expected": "that's not what I mean at all",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "do you see what I mean, the point",
+   "expected": "do you see what I mean, the point",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "We had no wait time at all",
+   "expected": "We had no wait time at all",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "By done I mean merged and deployed",
+   "expected": "By done I mean merged and deployed",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "I would go by car rather than walk",
+   "expected": "I would go by car rather than walk",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Wait, wait, wait, don't run that",
+   "expected": "Wait, wait, wait, don't run that",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "thanks, sorry, I was away",
+   "expected": "thanks, sorry, I was away",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "For the moment, no, Stephen answered.",
+   "expected": "For the moment, no, Stephen answered.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "tables upside down at night, I mean chairs upside down",
+   "expected": "tables upside down at night, I mean chairs upside down",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4S",
+   "input": "Let's use Redis. Scratch that, let's use Postgres.",
+   "expected": "Let's use Postgres.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4S",
+   "input": "The bar shows the day. No wait, the bar shows the week.",
+   "expected": "The bar shows the week.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4S",
+   "input": "Slow down. Actually, slow is fine.",
+   "expected": "Slow down. Actually, slow is fine.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4S",
+   "input": "Use Redis. Scratch that.",
+   "expected": "Use Redis. Scratch that.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "it takes about 3, sorry, 4 seconds",
+   "expected": "it takes about 4 seconds",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "I'll be there at 7, no, at 7:30",
+   "expected": "I'll be there at 7:30",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "we grew from forty one, sorry, forty two users",
+   "expected": "we grew from forty two users",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "I spent the last three, I mean four years there",
+   "expected": "I spent the last four years there",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "the board meets on the 14th at two, sorry, the 14th at three",
+   "expected": "the board meets on the 14th at three",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "Five, sorry, six people.",
+   "expected": "Six people.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "we sold it to five twenty five thousand people",
+   "expected": "we sold it to five twenty five thousand people",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "the tracking number is nine four seven two",
+   "expected": "the tracking number is nine four seven two",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R5",
+   "input": "set the timeout to 3, 30 seconds",
+   "expected": "set the timeout to 3, 30 seconds",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "we need the cache cache keys on Friday, no wait, Saturday",
+   "expected": "we need the cache keys on Saturday",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "even even even when it fails",
+   "expected": "even when it fails",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Hee hee hee.",
+   "expected": "Hee hee hee.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "Save our save the file first",
+   "expected": "Save the file first",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "Test this, test that",
+   "expected": "Test this, test that",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "Side by side they walked",
+   "expected": "Side by side they walked",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "the weight of the water, no, the weight of the body",
+   "expected": "the weight of the body",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "several log re log entries came in",
+   "expected": "several log entries came in",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "Does the scan scan every folder?",
+   "expected": "Does the scan scan every folder?",
+   "needs_nltagger": false,
+   "guard": "T1"
+  },
+  {
+   "rules": "R1",
+   "input": "Will the merge merge cleanly after the rebase?",
+   "expected": "Will the merge merge cleanly after the rebase?",
+   "needs_nltagger": false,
+   "guard": "T1"
+  },
+  {
+   "rules": "R1",
+   "input": "Doesn't the guard guard against that?",
+   "expected": "Doesn't the guard guard against that?",
+   "needs_nltagger": false,
+   "guard": "T1"
+  },
+  {
+   "rules": "R1",
+   "input": "Does this filter filter by date?",
+   "expected": "Does this filter filter by date?",
+   "needs_nltagger": false,
+   "guard": "T1"
+  },
+  {
+   "rules": "R1",
+   "input": "Did the client client sign?",
+   "expected": "Did the client client sign?",
+   "needs_nltagger": false,
+   "guard": "T1"
+  },
+  {
+   "rules": "R1",
+   "input": "Did the dishes dishes get done?",
+   "expected": "Did the dishes get done?",
+   "needs_nltagger": false,
+   "guard": "T1"
+  },
+  {
+   "rules": "R1",
+   "input": "I think the server server crashed overnight.",
+   "expected": "I think the server crashed overnight.",
+   "needs_nltagger": false,
+   "guard": "T1"
+  },
+  {
+   "rules": "R1",
+   "input": "Did you see the email email from Sam?",
+   "expected": "Did you see the email from Sam?",
+   "needs_nltagger": false,
+   "guard": "T1"
+  },
+  {
+   "rules": "R1",
+   "input": "I hope Will will review it today.",
+   "expected": "I hope Will will review it today.",
+   "needs_nltagger": false,
+   "guard": "T2a"
+  },
+  {
+   "rules": "R1",
+   "input": "Ask if May may join us for lunch.",
+   "expected": "Ask if May may join us for lunch.",
+   "needs_nltagger": false,
+   "guard": "T2a"
+  },
+  {
+   "rules": "R1",
+   "input": "I bet Rose rose early for that flight.",
+   "expected": "I bet Rose rose early for that flight.",
+   "needs_nltagger": false,
+   "guard": "T2a"
+  },
+  {
+   "rules": "R1",
+   "input": "Will will send the invite tomorrow.",
+   "expected": "Will will send the invite tomorrow.",
+   "needs_nltagger": false,
+   "guard": "T2b"
+  },
+  {
+   "rules": "R1",
+   "input": "Drew drew it on the whiteboard.",
+   "expected": "Drew drew it on the whiteboard.",
+   "needs_nltagger": false,
+   "guard": "T2b"
+  },
+  {
+   "rules": "R1",
+   "input": "May may stop by later.",
+   "expected": "May may stop by later.",
+   "needs_nltagger": false,
+   "guard": "T2b"
+  },
+  {
+   "rules": "R1",
+   "input": "Will will you send the invite?",
+   "expected": "Will you send the invite?",
+   "needs_nltagger": false,
+   "guard": "T2b"
+  },
+  {
+   "rules": "R1",
+   "input": "May may I ask a question?",
+   "expected": "May I ask a question?",
+   "needs_nltagger": false,
+   "guard": "T2b"
+  },
+  {
+   "rules": "R1",
+   "input": "It's a win win if we ship Friday.",
+   "expected": "It's a win win if we ship Friday.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Grab some cous cous for dinner.",
+   "expected": "Grab some cous cous for dinner.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Yada yada, the usual.",
+   "expected": "Yada yada, the usual.",
+   "needs_nltagger": false,
+   "guard": "T3+T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Same same, just a new color.",
+   "expected": "Same same, just a new color.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "We hit the same same bug again.",
+   "expected": "We hit the same bug again.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Pass dash dash help to see the flags.",
+   "expected": "Pass dash dash help to see the flags.",
+   "needs_nltagger": false,
+   "guard": "T4"
+  },
+  {
+   "rules": "R1",
+   "input": "It's C plus plus, not C sharp.",
+   "expected": "It's C plus plus, not C sharp.",
+   "needs_nltagger": false,
+   "guard": "T4"
+  },
+  {
+   "rules": "R1",
+   "input": "The path is dot dot slash config.",
+   "expected": "The path is dot dot slash config.",
+   "needs_nltagger": false,
+   "guard": "T4"
+  },
+  {
+   "rules": "R1",
+   "input": "Hit tab tab to finish the path.",
+   "expected": "Hit tab tab to finish the path.",
+   "needs_nltagger": false,
+   "guard": "T4"
+  },
+  {
+   "rules": "R1",
+   "input": "The shell prompt shows greater than greater than.",
+   "expected": "The shell prompt shows greater than greater than.",
+   "needs_nltagger": false,
+   "guard": "T4+T17"
+  },
+  {
+   "rules": "R1",
+   "input": "Append with greater than greater than in the shell.",
+   "expected": "Append with greater than greater than in the shell.",
+   "needs_nltagger": false,
+   "guard": "T4"
+  },
+  {
+   "rules": "R1",
+   "input": "new paragraph new paragraph thanks again",
+   "expected": "new paragraph new paragraph thanks again",
+   "needs_nltagger": false,
+   "guard": "T4+T16"
+  },
+  {
+   "rules": "R1",
+   "input": "Run the script script with dash dash verbose.",
+   "expected": "Run the script with dash dash verbose.",
+   "needs_nltagger": false,
+   "guard": "T4"
+  },
+  {
+   "rules": "R1",
+   "input": "He kept typing 'the the' by mistake.",
+   "expected": "He kept typing 'the the' by mistake.",
+   "needs_nltagger": false,
+   "guard": "T5+T5b+T17"
+  },
+  {
+   "rules": "R1",
+   "input": "The bug turns 'I I think' into 'I think'.",
+   "expected": "The bug turns 'I I think' into 'I think'.",
+   "needs_nltagger": false,
+   "guard": "T5+T5b+T17"
+  },
+  {
+   "rules": "R1",
+   "input": "Name the branch 'fix fix' for now.",
+   "expected": "Name the branch 'fix fix' for now.",
+   "needs_nltagger": false,
+   "guard": "T5+T5b"
+  },
+  {
+   "rules": "R4",
+   "input": "The doc says 'Monday, I mean Tuesday' as an example.",
+   "expected": "The doc says 'Monday, I mean Tuesday' as an example.",
+   "needs_nltagger": false,
+   "guard": "T5+T5b+T17"
+  },
+  {
+   "rules": "R1",
+   "input": "Check the logs logs for 'no wait' first.",
+   "expected": "Check the logs for 'no wait' first.",
+   "needs_nltagger": false,
+   "guard": "T5"
+  },
+  {
+   "rules": "R1",
+   "input": "We stayed up 'til til midnight.",
+   "expected": "We stayed up til midnight.",
+   "needs_nltagger": false,
+   "guard": "T5"
+  },
+  {
+   "rules": "R1",
+   "input": "She wrote 'the the and then the whole list went on and on and on for a while",
+   "expected": "She wrote 'the the and then the whole list went on and on and on for a while",
+   "needs_nltagger": false,
+   "guard": "T5b+T17"
+  },
+  {
+   "rules": "R1",
+   "input": "Her note had 'the the' circled in red.",
+   "expected": "Her note had 'the the' circled in red.",
+   "needs_nltagger": false,
+   "guard": "T5+T5b"
+  },
+  {
+   "rules": "R1",
+   "input": "Her list began 'the the and then the whole list went on and on and on for a while",
+   "expected": "Her list began 'the the and then the whole list went on and on and on for a while",
+   "needs_nltagger": false,
+   "guard": "T5b"
+  },
+  {
+   "rules": "R1",
+   "input": "(the the cat sat there)",
+   "expected": "(the the cat sat there)",
+   "needs_nltagger": false,
+   "guard": "T5b"
+  },
+  {
+   "rules": "R4",
+   "input": "Ship it on Monday) I mean Tuesday",
+   "expected": "Ship it on Monday) I mean Tuesday",
+   "needs_nltagger": false,
+   "guard": "T5b"
+  },
+  {
+   "rules": "R1",
+   "input": "Check the logs logs (see the wiki).",
+   "expected": "Check the logs (see the wiki).",
+   "needs_nltagger": false,
+   "guard": "T5b"
+  },
+  {
+   "rules": "R1",
+   "input": "We do do retros, just not every week.",
+   "expected": "We do do retros, just not every week.",
+   "needs_nltagger": false,
+   "guard": "T6"
+  },
+  {
+   "rules": "R1",
+   "input": "The interns do do the dishes on Fridays.",
+   "expected": "The interns do do the dishes on Fridays.",
+   "needs_nltagger": false,
+   "guard": "T6"
+  },
+  {
+   "rules": "R1",
+   "input": "I do do my own laundry.",
+   "expected": "I do do my own laundry.",
+   "needs_nltagger": false,
+   "guard": "T6"
+  },
+  {
+   "rules": "R1",
+   "input": "Do do you have the link?",
+   "expected": "Do you have the link?",
+   "needs_nltagger": false,
+   "guard": "T6"
+  },
+  {
+   "rules": "R1",
+   "input": "I need to do do the taxes tonight.",
+   "expected": "I need to do the taxes tonight.",
+   "needs_nltagger": false,
+   "guard": "T6"
+  },
+  {
+   "rules": "R1",
+   "input": "I'll do do it after lunch.",
+   "expected": "I'll do it after lunch.",
+   "needs_nltagger": false,
+   "guard": "T6"
+  },
+  {
+   "rules": "R1",
+   "input": "The demo was so so, the music was better.",
+   "expected": "The demo was so so, the music was better.",
+   "needs_nltagger": false,
+   "guard": "T7"
+  },
+  {
+   "rules": "R1",
+   "input": "My, my, what a mess.",
+   "expected": "My, my, what a mess.",
+   "needs_nltagger": false,
+   "guard": "T7"
+  },
+  {
+   "rules": "R1",
+   "input": "That's my, my car keys.",
+   "expected": "That's my car keys.",
+   "needs_nltagger": false,
+   "guard": "T7"
+  },
+  {
+   "rules": "R1",
+   "input": "Line them up up front.",
+   "expected": "Line them up up front.",
+   "needs_nltagger": false,
+   "guard": "T8"
+  },
+  {
+   "rules": "R1",
+   "input": "Their opener was The The.",
+   "expected": "Their opener was The The.",
+   "needs_nltagger": false,
+   "guard": "T9"
+  },
+  {
+   "rules": "R1",
+   "input": "The, The meeting moved to noon.",
+   "expected": "The meeting moved to noon.",
+   "needs_nltagger": false,
+   "guard": "T9"
+  },
+  {
+   "rules": "R2",
+   "input": "The code is xy xy xy.",
+   "expected": "The code is xy xy xy.",
+   "needs_nltagger": false,
+   "guard": "T10"
+  },
+  {
+   "rules": "R1",
+   "input": "It beeps zz zz zz all night.",
+   "expected": "It beeps zz zz zz all night.",
+   "needs_nltagger": false,
+   "guard": "T10"
+  },
+  {
+   "rules": "all",
+   "input": "Say th th the whole thing.",
+   "expected": "Say the whole thing.",
+   "needs_nltagger": false,
+   "guard": "T10"
+  },
+  {
+   "rules": "R3",
+   "input": "Spell it with an f at the end.",
+   "expected": "Spell it with an f at the end.",
+   "needs_nltagger": false,
+   "guard": "T11a"
+  },
+  {
+   "rules": "R3",
+   "input": "Add an m maybe, not an n.",
+   "expected": "Add an m maybe, not an n.",
+   "needs_nltagger": false,
+   "guard": "T11a"
+  },
+  {
+   "rules": "R3",
+   "input": "We need an ag agreement first.",
+   "expected": "We need an agreement first.",
+   "needs_nltagger": false,
+   "guard": "T11a"
+  },
+  {
+   "rules": "R3",
+   "input": "Add 2 g garlic to the pan.",
+   "expected": "Add 2 g garlic to the pan.",
+   "needs_nltagger": false,
+   "guard": "T11b"
+  },
+  {
+   "rules": "R3",
+   "input": "Bake it for 20 min minimum.",
+   "expected": "Bake it for 20 min minimum.",
+   "needs_nltagger": false,
+   "guard": "T11b"
+  },
+  {
+   "rules": "R3",
+   "input": "Give it 5 mi minutes.",
+   "expected": "Give it 5 mi minutes.",
+   "needs_nltagger": false,
+   "guard": "T11b"
+  },
+  {
+   "rules": "R3",
+   "input": "Check the third mi migration notes.",
+   "expected": "Check the third migration notes.",
+   "needs_nltagger": false,
+   "guard": "T11b"
+  },
+  {
+   "rules": "R5",
+   "input": "It's 3 hours. I mean, 3 hours for a review?",
+   "expected": "It's 3 hours. I mean, 3 hours for a review?",
+   "needs_nltagger": false,
+   "guard": "T13"
+  },
+  {
+   "rules": "R5",
+   "input": "Can we do 6? I mean 7 works too.",
+   "expected": "Can we do 6? I mean 7 works too.",
+   "needs_nltagger": false,
+   "guard": "T13"
+  },
+  {
+   "rules": "R5",
+   "input": "Book it for 6. Sorry, 7.",
+   "expected": "Book it for 7.",
+   "needs_nltagger": false,
+   "guard": "T13"
+  },
+  {
+   "rules": "R5",
+   "input": "It's 3 hours. Sorry, 4 hours.",
+   "expected": "It's 4 hours.",
+   "needs_nltagger": false,
+   "guard": "T13"
+  },
+  {
+   "rules": "R5",
+   "input": "We need 2 weeks. Sorry, 2 days.",
+   "expected": "We need 2 days.",
+   "needs_nltagger": false,
+   "guard": "T13"
+  },
+  {
+   "rules": "R5",
+   "input": "It takes 3 hours, sorry, 3 minutes.",
+   "expected": "It takes 3 minutes.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "We need 5 chairs, sorry, 5 more chairs.",
+   "expected": "We need 5 more chairs.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "I think I, I think we should wait.",
+   "expected": "I think we should wait.",
+   "needs_nltagger": false,
+   "guard": "T14"
+  },
+  {
+   "rules": "R4S",
+   "input": "We use Redis (version 7). Scratch that, we use Postgres.",
+   "expected": "We use Redis (version 7). Scratch that, we use Postgres.",
+   "needs_nltagger": false,
+   "guard": "T15"
+  },
+  {
+   "rules": "R4",
+   "input": "Delete the (old) file, scratch that, keep it.",
+   "expected": "Delete the (old) file, scratch that, keep it.",
+   "needs_nltagger": false,
+   "guard": "T15"
+  },
+  {
+   "rules": "R1",
+   "input": "packing list bullet point socks bullet point socks bullet point charger",
+   "expected": "packing list bullet point socks bullet point socks bullet point charger",
+   "needs_nltagger": false,
+   "guard": "T16"
+  },
+  {
+   "rules": "R1",
+   "input": "roll call new line here new line here new line away",
+   "expected": "roll call new line here new line here new line away",
+   "needs_nltagger": false,
+   "guard": "T16"
+  },
+  {
+   "rules": "R1",
+   "input": "agenda next bullet demo next bullet demo next bullet retro",
+   "expected": "agenda next bullet demo next bullet demo next bullet retro",
+   "needs_nltagger": false,
+   "guard": "T16"
+  },
+  {
+   "rules": "R1",
+   "input": "groceries new um line milk new um line milk",
+   "expected": "groceries new um line milk new um line milk",
+   "needs_nltagger": false,
+   "guard": "T16"
+  },
+  {
+   "rules": "R4S",
+   "input": "Buy milk. Scratch that, new line buy eggs and bread.",
+   "expected": "Buy milk. Scratch that, new line buy eggs and bread.",
+   "needs_nltagger": false,
+   "guard": "T16"
+  },
+  {
+   "rules": "R1",
+   "input": "todo bullet point book book the vet bullet point buy milk",
+   "expected": "todo bullet point book the vet bullet point buy milk",
+   "needs_nltagger": false,
+   "guard": "T16"
+  },
+  {
+   "rules": "R4S",
+   "input": "bullet point We ship Friday. Scratch that, we ship Monday.",
+   "expected": "bullet point We ship Monday.",
+   "needs_nltagger": false,
+   "guard": "T16"
+  },
+  {
+   "rules": "R4",
+   "input": "Write a fixture where the input is meet on Tuesday, no wait, Wednesday and nothing else.",
+   "expected": "Write a fixture where the input is meet on Tuesday, no wait, Wednesday and nothing else.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R5",
+   "input": "When I said it costs 30, sorry, 40 dollars the app kept only 40.",
+   "expected": "When I said it costs 30, sorry, 40 dollars the app kept only 40.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R1",
+   "input": "The rule should turn we need need it into we need it.",
+   "expected": "The rule should turn we need need it into we need it.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R3",
+   "input": "Write a test where fix the ty typo becomes fix the typo.",
+   "expected": "Write a test where fix the ty typo becomes fix the typo.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "If you dictate red, I mean blue, it should keep blue.",
+   "expected": "If you dictate red, I mean blue, it should keep blue.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "As I said we ship Monday, no wait, Tuesday.",
+   "expected": "As I said we ship Tuesday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R1",
+   "input": "My watch says the pace pace dropped again.",
+   "expected": "My watch says the pace dropped again.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "I'd say Monday, sorry, Tuesday works best.",
+   "expected": "I'd say Tuesday works best.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R1",
+   "input": "I said, the cache cache is stale",
+   "expected": "I said, the cache is stale",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R1",
+   "input": "Tell Mom the trip went well, ciao ciao for now.",
+   "expected": "Tell Mom the trip went well, ciao ciao for now.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "We take the new plan piano piano this week.",
+   "expected": "We take the new plan piano piano this week.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Si si, I already booked the table for eight.",
+   "expected": "Si si, I already booked the table for eight.",
+   "needs_nltagger": false,
+   "guard": "T3+T18"
+  },
+  {
+   "rules": "R1",
+   "input": "The soup was così così, the bread was great.",
+   "expected": "The soup was così così, the bread was great.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "It was a long week, basta basta with the meetings.",
+   "expected": "It was a long week, basta basta with the meetings.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "fillers",
+   "input": "the desk and the b chair are new",
+   "expected": "the desk and the b chair are new",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "fillers",
+   "input": "check the lo logs from last night",
+   "expected": "check the logs from last night",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "fillers",
+   "input": "we went over over these numbers",
+   "expected": "we went over these numbers",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "fillers",
+   "input": "ship it Thursday, no wait, Friday after lunch",
+   "expected": "ship it Thursday, no wait, Friday after lunch",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "The app heard call Sam, I mean Sara, and dropped Sam.",
+   "expected": "The app heard call Sam, I mean Sara, and dropped Sam.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R1",
+   "input": "It printed retry retry in the log.",
+   "expected": "It printed retry retry in the log.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R5",
+   "input": "It pasted call me at 5, sorry, 6 into the chat.",
+   "expected": "It pasted call me at 5, sorry, 6 into the chat.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "She said the deadline is Monday, sorry, Tuesday.",
+   "expected": "She said the deadline is Monday, sorry, Tuesday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "Whoever wrote over over in the doc meant it.",
+   "expected": "Whoever wrote over over in the doc meant it.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "I wrote the report on Monday, sorry, Tuesday.",
+   "expected": "I wrote the report on Tuesday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "I typed the password, sorry, the username.",
+   "expected": "I typed the username.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "The store expects the shipment on Thursday, no wait, Friday.",
+   "expected": "The store expects the shipment on Friday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R5",
+   "input": "I expect we'll land at 6, sorry, 7.",
+   "expected": "I expect we'll land at 7.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R5",
+   "input": "My watch shows 48, sorry, 49.",
+   "expected": "My watch shows 49.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R1",
+   "input": "The flag prints what would change change.",
+   "expected": "The flag prints what would change.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "We heard back on Thursday, no wait, Friday.",
+   "expected": "We heard back on Friday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "The transcript contains ship it Friday, no wait, Saturday.",
+   "expected": "The transcript contains ship it Friday, no wait, Saturday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R5",
+   "input": "The final text should stay call me at 5, sorry, 6.",
+   "expected": "The final text should stay call me at 5, sorry, 6.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R4",
+   "input": "The message is from Sam, I mean Dana.",
+   "expected": "The message is from Dana.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "Given meet at 2, actually 3, the rules return meet at 3.",
+   "expected": "Given meet at 2, actually 3, the rules return meet at 3.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "For the input we need need it, the output is we need it.",
+   "expected": "For the input we need need it, the output is we need it.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "It collapsed over over to over.",
+   "expected": "It collapsed over over to over.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "Monday, sorry, Tuesday resolved to Tuesday.",
+   "expected": "Monday, sorry, Tuesday resolved to Tuesday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "Make sure the app keeps call at 3, sorry, 4 verbatim.",
+   "expected": "Make sure the app keeps call at 3, sorry, 4 verbatim.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "We ship it as is on Friday, sorry, Saturday.",
+   "expected": "We ship it as is on Saturday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "It deleted Thursday from Thursday, no wait, Friday.",
+   "expected": "It deleted Thursday from Thursday, no wait, Friday.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "Use leave at 4, sorry, 5 as the probe.",
+   "expected": "Use leave at 4, sorry, 5 as the probe.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "Add over over to the keep list test.",
+   "expected": "Add over over to the keep list test.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "all",
+   "input": "Keep our keep the logs next to the inputs.",
+   "expected": "Keep the logs next to the inputs.",
+   "needs_nltagger": false,
+   "guard": "T17"
+  },
+  {
+   "rules": "R1",
+   "input": "Ti mando tanti tanti baci, see you soon.",
+   "expected": "Ti mando tanti tanti baci, see you soon.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Quasi quasi I'll stay another week.",
+   "expected": "Quasi quasi I'll stay another week.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Zitto zitto he slipped out of the party.",
+   "expected": "Zitto zitto he slipped out of the party.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Book the lomi lomi massage for Sunday.",
+   "expected": "Book the lomi lomi massage for Sunday.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "fillers",
+   "input": "Book the lomi lomi massage for Sunday.",
+   "expected": "Book the lomi lomi massage for Sunday.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "The dog went woof woof all night.",
+   "expected": "The dog went woof woof all night.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Check the wiki wiki page for the address.",
+   "expected": "Check the wiki page for the address.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "My aunt answered già già and hung up.",
+   "expected": "My aunt answered già già and hung up.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "fillers",
+   "input": "We stayed lì lì for an hour.",
+   "expected": "We stayed lì lì for an hour.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "The café café on Main is closed today.",
+   "expected": "The café café on Main is closed today.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Cool cool, see you then.",
+   "expected": "Cool cool, see you then.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Vite vite, the taxi is outside.",
+   "expected": "Vite vite, the taxi is outside.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "See you at eight, hugs hugs.",
+   "expected": "See you at eight, hugs hugs.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Thanks thanks!",
+   "expected": "Thanks thanks!",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "fillers",
+   "input": "Sorry sorry, I meant the other file.",
+   "expected": "Sorry sorry, I meant the other file.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Milk milk, eggs and bread.",
+   "expected": "Milk milk, eggs and bread.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "We need eggs, milk milk, and bread.",
+   "expected": "We need eggs, milk, and bread.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Tomorrow tomorrow we ship the beta.",
+   "expected": "Tomorrow we ship the beta.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Cool, um, cool, see you then.",
+   "expected": "Cool, see you then.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Can you swing by by noon tomorrow?",
+   "expected": "Can you swing by by noon tomorrow?",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Stop by by 5 if you can.",
+   "expected": "Stop by by 5 if you can.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Come over over the holidays if you're free.",
+   "expected": "Come over over the holidays if you're free.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "fillers",
+   "input": "Swing by by lunch and grab the keys.",
+   "expected": "Swing by by lunch and grab the keys.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Think it over over the weekend and call me Monday.",
+   "expected": "Think it over over the weekend and call me Monday.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Pass the salad over over the table.",
+   "expected": "Pass the salad over over the table.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "What the options are are listed below.",
+   "expected": "What the options are are listed below.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "We went over over these numbers yesterday.",
+   "expected": "We went over these numbers yesterday.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Can you swing by by the office later?",
+   "expected": "Can you swing by the office later?",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Sales could drop by by 5 percent.",
+   "expected": "Sales could drop by 5 percent.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Prices drop by by 5 each year.",
+   "expected": "Prices drop by 5 each year.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Drop by by five if you can.",
+   "expected": "Drop by by five if you can.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "I looked over over 40 resumes today.",
+   "expected": "I looked over 40 resumes today.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Hand it over over to Sam.",
+   "expected": "Hand it over to Sam.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "We went over over the last two weeks of data.",
+   "expected": "We went over the last two weeks of data.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "What are are you doing tonight?",
+   "expected": "What are you doing tonight?",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "How did did that happen?",
+   "expected": "How did that happen?",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "fillers",
+   "input": "Where were were you last night?",
+   "expected": "Where were you last night?",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Where are they, are are they coming?",
+   "expected": "Where are they, are they coming?",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "What they are are two separate bugs.",
+   "expected": "What they are are two separate bugs.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "Whatever you did did the trick.",
+   "expected": "Whatever you did did the trick.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "fillers",
+   "input": "What we did did work in the end.",
+   "expected": "What we did did work in the end.",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "What time are are we leaving?",
+   "expected": "What time are are we leaving?",
+   "needs_nltagger": false,
+   "guard": "T19"
+  },
+  {
+   "rules": "R1",
+   "input": "What is is your name?",
+   "expected": "What is your name?",
+   "needs_nltagger": false,
+   "guard": "T22"
+  },
+  {
+   "rules": "R1",
+   "input": "How does does the export work?",
+   "expected": "How does the export work?",
+   "needs_nltagger": false,
+   "guard": "T22"
+  },
+  {
+   "rules": "fillers",
+   "input": "Where was was the meeting?",
+   "expected": "Where was the meeting?",
+   "needs_nltagger": false,
+   "guard": "T22"
+  },
+  {
+   "rules": "R1",
+   "input": "What do do they want from the vendor?",
+   "expected": "What do they want from the vendor?",
+   "needs_nltagger": false,
+   "guard": "T22"
+  },
+  {
+   "rules": "R1",
+   "input": "Whatever is is right.",
+   "expected": "Whatever is right.",
+   "needs_nltagger": false,
+   "guard": "T22"
+  },
+  {
+   "rules": "R1",
+   "input": "What it was was a typo in the config.",
+   "expected": "What it was was a typo in the config.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "fillers",
+   "input": "What the tool does does not matter here.",
+   "expected": "What the tool does does not matter here.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "Running late, ti chiamo after lunch.",
+   "expected": "Running late, ti chiamo after lunch.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Landed safe, ti chiamo after dinner.",
+   "expected": "Landed safe, ti chiamo after dinner.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Running late, fa freddo here so grab a jacket.",
+   "expected": "Running late, fa freddo here so grab a jacket.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "all",
+   "input": "Nobody knows, chi sa, maybe it works.",
+   "expected": "Nobody knows, chi sa, maybe it works.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Honestly je ne sais pas what happened.",
+   "expected": "Honestly je ne sais pas what happened.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Just add un po of salt to the water.",
+   "expected": "Just add un po of salt to the water.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "I learned kung fu as a kid.",
+   "expected": "I learned kung fu as a kid.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "It was deja vu all over again.",
+   "expected": "It was deja vu all over again.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "all",
+   "input": "The value of pi is about three.",
+   "expected": "The value of pi is about three.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Do an ab workout tonight.",
+   "expected": "Do an ab workout tonight.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Can you send the fo report today?",
+   "expected": "Can you send the report today?",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Drive safe, ve con cuidado, love you.",
+   "expected": "Drive safe, ve con cuidado, love you.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "fillers",
+   "input": "Running late, ti chiamo after lunch.",
+   "expected": "Running late, ti chiamo after lunch.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Book a window seat, scratch that, an aisle seat.",
+   "expected": "Book an aisle seat.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "Invite every engineer, scratch that, only leads.",
+   "expected": "Invite only leads.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "Order the large pizza, scratch that, two medium ones.",
+   "expected": "Order two medium ones.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "Send it to the whole team, scratch that, just the leads.",
+   "expected": "Send it to just the leads.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "Invite all the engineers, scratch that, just leads.",
+   "expected": "Invite just leads.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "We should take the early flight, scratch that, the late one.",
+   "expected": "We should take the late one.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "all",
+   "input": "When you land, reserve a window seat, scratch that, an aisle seat, please.",
+   "expected": "When you land, reserve an aisle seat, please.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "all",
+   "input": "When you land, book a window seat, scratch that, an aisle seat, please.",
+   "expected": "When you land, an aisle seat, please.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "The cache was slow, scratch that, the database.",
+   "expected": "The cache was slow, scratch that, the database.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "Sam fixed it, scratch that, Priya.",
+   "expected": "Sam fixed it, scratch that, Priya.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "all",
+   "input": "I want the report by Friday, scratch that, the summary.",
+   "expected": "I want the report by Friday, scratch that, the summary.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "I'll take the train, scratch that, I'll drive.",
+   "expected": "I'll drive.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "Tell him it's done, scratch that, tell him it's close.",
+   "expected": "Tell him it's close.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "The large pizza, scratch that, two medium ones.",
+   "expected": "Two medium ones.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R4",
+   "input": "Email the slides to the team, scratch that, the notes.",
+   "expected": "Email the slides to the notes.",
+   "needs_nltagger": true,
+   "guard": "T21"
+  },
+  {
+   "rules": "R3",
+   "input": "Tell them ve lo porto domani, the cake I mean.",
+   "expected": "Tell them ve lo porto domani, the cake I mean.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Finished the novel, j'ai lu every page of it.",
+   "expected": "Finished the novel, j'ai lu every page of it.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Great dinner, nous avons bu too much wine.",
+   "expected": "Great dinner, nous avons bu too much wine.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Watched the clip, eu ri muito, so funny.",
+   "expected": "Watched the clip, eu ri muito, so funny.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "all",
+   "input": "Tomorrow vamos ir to the beach early.",
+   "expected": "Tomorrow vamos ir to the beach early.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "We did it in good faith, de buena fe really.",
+   "expected": "We did it in good faith, de buena fe really.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "She texted wo bist du right after landing.",
+   "expected": "She texted wo bist du right after landing.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Connect to the wi fi network first.",
+   "expected": "Connect to the wi fi network first.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Play some lo fi beats while I work.",
+   "expected": "Play some lo fi beats while I work.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "all",
+   "input": "I think we ve been there before.",
+   "expected": "I think we ve been there before.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "They ve already left the office.",
+   "expected": "They ve already left the office.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Please move the wh meeting to Friday.",
+   "expected": "Please move the meeting to Friday.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "Let's book the tr flight tonight.",
+   "expected": "Let's book the flight tonight.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "fillers",
+   "input": "Connect to the wi fi network first.",
+   "expected": "Connect to the wi fi network first.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "groceries bullet point eggs eggs bullet point milk bullet point bread",
+   "expected": "groceries bullet point eggs bullet point milk bullet point bread",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "fillers",
+   "input": "to do new line invoices invoices new line pay rent",
+   "expected": "to do new line invoices new line pay rent",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "agenda new line budget budget new line hiring new line roadmap",
+   "expected": "agenda new line budget new line hiring new line roadmap",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "bullet point tomatoes tomatoes bullet point basil",
+   "expected": "bullet point tomatoes bullet point basil",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "all",
+   "input": "shopping list bullet point milk bullet point eggs eggs",
+   "expected": "shopping list bullet point milk bullet point eggs",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "packing list bullet point socks socks. bullet point shoes.",
+   "expected": "packing list bullet point socks. bullet point shoes.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "see you at eight new line hugs hugs",
+   "expected": "see you at eight new line hugs hugs",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "fillers",
+   "input": "thanks everyone new line cheers cheers",
+   "expected": "thanks everyone new line cheers cheers",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Hooray hooray! new line see you Sunday",
+   "expected": "Hooray hooray! new line see you Sunday",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Cool cool, new line see you then",
+   "expected": "Cool cool, new line see you then",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "new line hugs hugs",
+   "expected": "new line hugs hugs",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "The pasta was buona buona tonight, grazie mille.",
+   "expected": "The pasta was buona buona tonight, grazie mille.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "fillers",
+   "input": "It was caldo caldo at the beach all day.",
+   "expected": "It was caldo caldo at the beach all day.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "I got home stanco stanco after the long run.",
+   "expected": "I got home stanco stanco after the long run.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "all",
+   "input": "We walked lento lento along the river.",
+   "expected": "We walked lento lento along the river.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "The fridge is pieno pieno of leftovers again.",
+   "expected": "The fridge is pieno pieno of leftovers again.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Take it despacito despacito on the stairs.",
+   "expected": "Take it despacito despacito on the stairs.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "The puppy is lindo lindo in that photo.",
+   "expected": "The puppy is lindo lindo in that photo.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "Scusa scusa, I missed your call.",
+   "expected": "Scusa scusa, I missed your call.",
+   "needs_nltagger": false,
+   "guard": "T3+T18"
+  },
+  {
+   "rules": "R1",
+   "input": "The chef made the sauce dolce dolce this time.",
+   "expected": "The chef made the sauce dolce dolce this time.",
+   "needs_nltagger": false,
+   "guard": "T3"
+  },
+  {
+   "rules": "R1",
+   "input": "We got gelato gelato after dinner.",
+   "expected": "We got gelato after dinner.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "We ordered pizza pizza for the whole team.",
+   "expected": "We ordered pizza for the whole team.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "fillers",
+   "input": "Update the config config file before lunch.",
+   "expected": "Update the config file before lunch.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R2",
+   "input": "Poco a poco the pain went away.",
+   "expected": "Poco a poco the pain went away.",
+   "needs_nltagger": false,
+   "guard": "T23"
+  },
+  {
+   "rules": "all",
+   "input": "Passo a passo we rebuilt the whole deck.",
+   "expected": "Passo a passo we rebuilt the whole deck.",
+   "needs_nltagger": false,
+   "guard": "T23"
+  },
+  {
+   "rules": "R2",
+   "input": "Paso a paso we got there in the end.",
+   "expected": "Paso a paso we got there in the end.",
+   "needs_nltagger": false,
+   "guard": "T23"
+  },
+  {
+   "rules": "R2",
+   "input": "Dia a dia it gets a little easier.",
+   "expected": "Dia a dia it gets a little easier.",
+   "needs_nltagger": false,
+   "guard": "T23"
+  },
+  {
+   "rules": "R2",
+   "input": "Día a día it gets a little easier.",
+   "expected": "Día a día it gets a little easier.",
+   "needs_nltagger": false,
+   "guard": "T23"
+  },
+  {
+   "rules": "R2",
+   "input": "Mas y mas people came to the shows.",
+   "expected": "Mas y mas people came to the shows.",
+   "needs_nltagger": false,
+   "guard": "T23"
+  },
+  {
+   "rules": "R2",
+   "input": "Send a send the file now.",
+   "expected": "Send the file now.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Win a win the next game first.",
+   "expected": "Win the next game first.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Reset the branch, I mean, fork the branch.",
+   "expected": "Reset the branch, I mean, fork the branch.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Remove the tests, no wait, skip them.",
+   "expected": "Remove the tests, no wait, skip them.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Ship the build, sorry, tag it first.",
+   "expected": "Ship the build, sorry, tag it first.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Kill the job, no, schedule the job for tonight.",
+   "expected": "Kill the job, no, schedule the job for tonight.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Close the tab, actually, bookmark the tab.",
+   "expected": "Close the tab, actually, bookmark the tab.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Drop the staging database, I mean, clone it first.",
+   "expected": "Drop the staging database, I mean, clone it first.",
+   "needs_nltagger": true,
+   "guard": "T24+T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Drop the cache, I mean, warm up the cache.",
+   "expected": "Drop the cache, I mean, warm up the cache.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "all",
+   "input": "Call the landlord, I mean, text him tonight.",
+   "expected": "Call the landlord, I mean, text him tonight.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Send the team, I mean, client the slides.",
+   "expected": "Send the team, I mean, client the slides.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Delete the logs, scratch that, archive the logs.",
+   "expected": "Archive the logs.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Close the old tab, scratch that, bookmark it.",
+   "expected": "Bookmark it.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Can you fork, I mean, clone the repo?",
+   "expected": "Can you clone the repo?",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "We tested, I mean, deployed the build.",
+   "expected": "We deployed the build.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "I need to email, no wait, call my manager.",
+   "expected": "I need to call my manager.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Put the cup, I mean, glass on the table.",
+   "expected": "Put the glass on the table.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send the report, I mean, summary that I wrote.",
+   "expected": "Send the summary that I wrote.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Bring the soup, I mean, salad this time.",
+   "expected": "Bring the salad this time.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send it to the whole team, scratch that, half the team.",
+   "expected": "Send it to half the team.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Merge the branch, I mean, rebase onto main.",
+   "expected": "Merge the rebase onto main.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "See you at eight new line. Hugs hugs, call me later.",
+   "expected": "See you at eight new line. Hugs hugs, call me later.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "fillers",
+   "input": "Thanks for tonight new paragraph. Cheers cheers, see you Friday.",
+   "expected": "Thanks for tonight new paragraph. Cheers cheers, see you Friday.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "She told me open quote we did it end quote. Cool cool, what a week.",
+   "expected": "She told me open quote we did it end quote. Cool cool, what a week.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "all",
+   "input": "Dinner at six new line! Nice nice, I will bring wine.",
+   "expected": "Dinner at six new line! Nice nice, I will bring wine.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "Agenda new line. Budget budget, hiring, roadmap.",
+   "expected": "Agenda new line. Budget budget, hiring, roadmap.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "To do. New line. Invoices invoices. New line. Pay rent.",
+   "expected": "To do. New line. Invoices invoices. New line. Pay rent.",
+   "needs_nltagger": false,
+   "guard": "T18"
+  },
+  {
+   "rules": "R1",
+   "input": "agenda new line, budget budget new line, hiring",
+   "expected": "agenda new line, budget new line, hiring",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "fillers",
+   "input": "groceries bullet point. Eggs eggs. Bullet point. Milk.",
+   "expected": "groceries bullet point. Eggs. Bullet point. Milk.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R1",
+   "input": "See you soon new line. Lets lets go to the park.",
+   "expected": "See you soon new line. Lets go to the park.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "Eu ia te ligar but my phone died.",
+   "expected": "Eu ia te ligar but my phone died.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "And then, uy, the bill came.",
+   "expected": "And then, uy, the bill came.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "all",
+   "input": "Come on, ea, let us finish this.",
+   "expected": "Come on, ea, let us finish this.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Hey, ey, wait for us at the door.",
+   "expected": "Hey, ey, wait for us at the door.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Oh no, ih, the keys are inside.",
+   "expected": "Oh no, ih, the keys are inside.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Brr, hu, the lake is freezing.",
+   "expected": "Brr, hu, the lake is freezing.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "The piece is in ut major, she said.",
+   "expected": "The piece is in ut major, she said.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "The drummer played a soft ra on the snare.",
+   "expected": "The drummer played a soft ra on the snare.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Gandhi ji taught patience to everyone.",
+   "expected": "Gandhi ji taught patience to everyone.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "John, my jo, come home soon.",
+   "expected": "John, my jo, come home soon.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "We had lunch ao ar livre by the lake.",
+   "expected": "We had lunch ao ar livre by the lake.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Aikido teaches you to feel your ki in every move.",
+   "expected": "Aikido teaches you to feel your ki in every move.",
+   "needs_nltagger": false,
+   "guard": "T20"
+  },
+  {
+   "rules": "R3",
+   "input": "Please check the gr numbers before lunch.",
+   "expected": "Please check the numbers before lunch.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "Book the fo flight now.",
+   "expected": "Book the flight now.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "Can you sign the cr form today?",
+   "expected": "Can you sign the form today?",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R3",
+   "input": "Water the ge plants tonight.",
+   "expected": "Water the plants tonight.",
+   "needs_nltagger": false,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send the team, scratch that, client the slides.",
+   "expected": "Send the team, scratch that, client the slides.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "all",
+   "input": "Call the plumber, scratch that, electrician my neighbor recommended.",
+   "expected": "Call the plumber, scratch that, electrician my neighbor recommended.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Order the pasta, scratch that, salad the chef recommends.",
+   "expected": "Order the pasta, scratch that, salad the chef recommends.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Give the intern, scratch that, contractor a laptop.",
+   "expected": "Give the intern, scratch that, contractor a laptop.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Move the call, scratch that, book a room.",
+   "expected": "Move the call, scratch that, book a room.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Pause the deploy, scratch that, cancel the deploy.",
+   "expected": "Cancel the deploy.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Rename the file, scratch that, delete it.",
+   "expected": "Delete it.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Freeze the account, scratch that, lock the account.",
+   "expected": "Lock the account.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Warm up the cache, I mean, clear out the cache before the demo.",
+   "expected": "Warm up the cache, I mean, clear out the cache before the demo.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "all",
+   "input": "Delete the draft, I mean, print out the draft.",
+   "expected": "Delete the draft, I mean, print out the draft.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Reset Sam's branch, I mean, fork Sam's branch.",
+   "expected": "Reset Sam's branch, I mean, fork Sam's branch.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Warm up the cache, scratch that, clear out the cache before the demo.",
+   "expected": "Clear out the cache before the demo.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Let's fork, I mean, clone the repo.",
+   "expected": "Let's clone the repo.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Let's fork, scratch that, clone the repo.",
+   "expected": "Let's clone the repo.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Let's paint, no wait, sand the deck.",
+   "expected": "Let's sand the deck.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Delete the draft, I mean, print out a copy.",
+   "expected": "Delete the print out a copy.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Use the staging bucket, I mean, prod bucket.",
+   "expected": "Use the prod bucket.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Check the credit card, I mean, debit card.",
+   "expected": "Check the debit card.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Run the unit tests, I meant, integration tests, and tell me which ones fail.",
+   "expected": "Run the integration tests, and tell me which ones fail.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Book the conference room, scratch that, meeting room for noon.",
+   "expected": "Book the meeting room for noon.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Bring the old laptop, I mean, new laptop.",
+   "expected": "Bring the new laptop.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Restart the staging server, I mean, prod.",
+   "expected": "Restart the staging server, I mean, prod.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Use the test database, no wait, prod before lunch.",
+   "expected": "Use the test database, no wait, prod before lunch.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Restart the staging server, scratch that, prod.",
+   "expected": "Restart the staging server, scratch that, prod.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "The staging server, scratch that, prod.",
+   "expected": "The staging server, scratch that, prod.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Send the sales report, I mean, summary.",
+   "expected": "Send the sales report, I mean, summary.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Check credit card, I mean, debit card.",
+   "expected": "Check debit card.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Restart staging server, I mean, prod.",
+   "expected": "Restart staging server, I mean, prod.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Deploy to staging cluster, no wait, prod.",
+   "expected": "Deploy to staging cluster, no wait, prod.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Please print slides, I mean, notes.",
+   "expected": "Please print notes.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Book a cheap flight, I mean, train.",
+   "expected": "Book a cheap train.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Use the staging bucket, scratch that, the prod bucket.",
+   "expected": "Use the prod bucket.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Check the credit card, sorry, debit card.",
+   "expected": "Check the credit card, sorry, debit card.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "I'll call him, scratch that, text him tonight.",
+   "expected": "I'll text him tonight.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "all",
+   "input": "We shipped it on Friday and then deleted the logs, scratch that, archived the logs.",
+   "expected": "We shipped it on Friday and then archived the logs.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "I fixed the parser and pushed the branch, scratch that, opened a pull request.",
+   "expected": "I fixed the parser and opened a pull request.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "I want to delete the logs, scratch that, archive them.",
+   "expected": "I want to archive them.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "Can you email the team, scratch that, text the team?",
+   "expected": "Can you text the team?",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "Let's meet at noon, scratch that, grab lunch at one.",
+   "expected": "Let's grab lunch at one.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "all",
+   "input": "Please delete the old photos, scratch that, back them up.",
+   "expected": "Please back them up.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "The tests failed, scratch that, rerun them.",
+   "expected": "Rerun them.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "We pushed the branch, scratch that, open a PR.",
+   "expected": "Open a PR.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "The build was slow, scratch that, cache the deps first.",
+   "expected": "Cache the deps first.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "I'll take the train, scratch that, I'll drive.",
+   "expected": "I'll drive.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send the file, I mean, link to the file.",
+   "expected": "Send the link to the file.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Order the pizza, scratch that, salad and pizza.",
+   "expected": "Order the salad and pizza.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Print the report, scratch that, summary of the report.",
+   "expected": "Print the summary of the report.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Fix the door, I mean, lock on the door.",
+   "expected": "Fix the door, I mean, lock on the door.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "all",
+   "input": "Fix the door, scratch that, lock on the door.",
+   "expected": "Fix the door, scratch that, lock on the door.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Pack the charger, I mean, plug in the charger.",
+   "expected": "Pack the charger, I mean, plug in the charger.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Dim the lights, scratch that, turn off the lights.",
+   "expected": "Turn off the lights.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Toss the cables, scratch that, pack up the cables.",
+   "expected": "Pack up the cables.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Call the vendor, scratch that, text her.",
+   "expected": "Text her.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Email the landlord, scratch that, text her tonight.",
+   "expected": "Text her tonight.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Ask the manager, scratch that, director her question.",
+   "expected": "Ask the manager, scratch that, director her question.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Email the guy who can fix it, scratch that, call him.",
+   "expected": "Call him.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Book the room that we can use, scratch that, cancel it.",
+   "expected": "Cancel it.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Book the room where we can meet, scratch that, cancel it.",
+   "expected": "Cancel it.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Email the one that can fix it, scratch that, call them.",
+   "expected": "Call them.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Please email the guy who can fix it, scratch that, call him.",
+   "expected": "Please call him.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "Ask them where we can park the car, scratch that, leave it.",
+   "expected": "Ask them where we can leave it.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "I think that we should email her, scratch that, call her.",
+   "expected": "I think that we should call her.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "Use the shared folder, I mean, Sam's folder.",
+   "expected": "Use the shared folder, I mean, Sam's folder.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Book a conference room, I mean, Priya's room.",
+   "expected": "Book a conference room, I mean, Priya's room.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Store it in cold storage, I mean, Sam's storage.",
+   "expected": "Store it in cold storage, I mean, Sam's storage.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Merge feature branch, I mean, Sam's branch.",
+   "expected": "Merge feature branch, I mean, Sam's branch.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Use Sam's staging bucket, I mean, Dana's bucket.",
+   "expected": "Use Sam's staging bucket, I mean, Dana's bucket.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Print the old report, I mean, today's report.",
+   "expected": "Print the old report, I mean, today's report.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Print the 3 sales reports, I mean, Dana's reports.",
+   "expected": "Print the 3 sales reports, I mean, Dana's reports.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Clear the 2 front memos, scratch that, everyone's memos.",
+   "expected": "Clear the 2 front memos, scratch that, everyone's memos.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Book the 2 corner tables, scratch that, Sam's tables.",
+   "expected": "Book the 2 corner tables, scratch that, Sam's tables.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Grab the spare charger, sorry, Dana's charger.",
+   "expected": "Grab the spare charger, sorry, Dana's charger.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Book the Monday meeting, I mean, team meeting.",
+   "expected": "Book the team meeting.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Send Sam updates, I mean, notes.",
+   "expected": "Send Sam updates, I mean, notes.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Use the old laptop, I mean, manager's laptop.",
+   "expected": "Use the old laptop, I mean, manager's laptop.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Sign the new lease, scratch that, tenant's lease.",
+   "expected": "Sign the new lease, scratch that, tenant's lease.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Go to the staff restroom, I mean, women's restroom.",
+   "expected": "Go to the staff restroom, I mean, women's restroom.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Use the old laptop, I mean, everyone's laptop.",
+   "expected": "Use the old laptop, I mean, everyone's laptop.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Bring both old chargers, I mean, Sam's chargers.",
+   "expected": "Bring both old chargers, I mean, Sam's chargers.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Print the 3 sales reports, I mean, manager's reports.",
+   "expected": "Print the 3 sales reports, I mean, manager's reports.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "The kids ate cold pizza, I mean, Sam's pizza.",
+   "expected": "The kids ate cold pizza, I mean, Sam's pizza.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Did the kids eat cold pizza, I mean, Sam's pizza?",
+   "expected": "Did the kids eat cold pizza, I mean, Sam's pizza?",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Send the team updated numbers, I mean, Sam's numbers.",
+   "expected": "Send the team updated numbers, I mean, Sam's numbers.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Hand the team updated numbers, I mean, Sam's numbers.",
+   "expected": "Hand the team updated numbers, I mean, Sam's numbers.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send the team updated numbers, I mean, final numbers.",
+   "expected": "Send the team final numbers.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "The kids ate pizza, I mean, cold pizza.",
+   "expected": "The kids ate pizza, I mean, cold pizza.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "The team shipped features, I mean, new features.",
+   "expected": "The team shipped features, I mean, new features.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Our vendor sent invoices, scratch that, Dana's invoices.",
+   "expected": "Our vendor sent invoices, scratch that, Dana's invoices.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "We can use the shared folder, I mean, Sam's folder works too.",
+   "expected": "We can use the shared folder, I mean, Sam's folder works too.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "We can use the old laptop, I mean, manager's laptop works too.",
+   "expected": "We can use the old laptop, I mean, manager's laptop works too.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Take the blue car, I mean, Dana's car is fine as well.",
+   "expected": "Take the blue car, I mean, Dana's car is fine as well.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Give the dog treats, I mean, Sam's treats.",
+   "expected": "Give the dog treats, I mean, Sam's treats.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send the team numbers, I mean, manager's numbers.",
+   "expected": "Send the team numbers, I mean, manager's numbers.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Wash the deck, I mean, power wash the deck.",
+   "expected": "Wash the deck, I mean, power wash the deck.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "all",
+   "input": "Run the build, scratch that, stress test the build.",
+   "expected": "Stress test the build.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Can we test the app, scratch that, load test the app?",
+   "expected": "Can we load test the app?",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Delete the old files, scratch that, archive the old files.",
+   "expected": "Archive the old files.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Delete Sam's old laptop, scratch that, archive Sam's old laptop.",
+   "expected": "Archive Sam's old laptop.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Delete the old drafts, I mean, archive the old drafts.",
+   "expected": "Delete the old drafts, I mean, archive the old drafts.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Fix the sink, I mean, guest bathroom sink.",
+   "expected": "Fix the guest bathroom sink.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Email the lawyer, I mean, paralegal assisting the lawyer.",
+   "expected": "Email the paralegal assisting the lawyer.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Can you check the tires, scratch that, pressure in the tires before we leave?",
+   "expected": "Can you check the tires, scratch that, pressure in the tires before we leave?",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "all",
+   "input": "Please clean the oven, scratch that, rack in the oven when you get home.",
+   "expected": "Please clean the oven, scratch that, rack in the oven when you get home.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Pack the charger, scratch that, plug in the charger before we leave.",
+   "expected": "Pack the charger, scratch that, plug in the charger before we leave.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "I'll fix the door, scratch that, lock on the door is broken.",
+   "expected": "Lock on the door is broken.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Call the client when you can review it, scratch that, merge it.",
+   "expected": "Call the client when you can merge it.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "all",
+   "input": "Ping me tomorrow when you can review it, scratch that, merge it.",
+   "expected": "Ping me tomorrow when you can merge it.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "Find a time when we can all meet, scratch that, call them.",
+   "expected": "Call them.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "The client who called will email the contract, scratch that, mail the contract.",
+   "expected": "The client who called will mail the contract.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "all",
+   "input": "The guy who fixed it said to call him, scratch that, email him.",
+   "expected": "The guy who fixed it said to email him.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "Anyone who needs a ride should text me, scratch that, call me.",
+   "expected": "Anyone who needs a ride should call me.",
+   "needs_nltagger": true,
+   "guard": "T26"
+  },
+  {
+   "rules": "R4",
+   "input": "The guy who wants to help called us, scratch that, emailed us.",
+   "expected": "Emailed us.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Email the guy who can fix it, scratch that, call him.",
+   "expected": "Call him.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send my manager sales reports, I mean, Dana's reports.",
+   "expected": "Send my manager sales reports, I mean, Dana's reports.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Use the old laptop, I mean, CEO's laptop.",
+   "expected": "Use the old laptop, I mean, CEO's laptop.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Tell the kids stories, I mean, Dana's stories.",
+   "expected": "Tell the kids stories, I mean, Dana's stories.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Give the interns snacks, I mean, Sam's snacks.",
+   "expected": "Give the interns snacks, I mean, Sam's snacks.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send the team updated sales numbers, I mean, Sam's numbers.",
+   "expected": "Send the team updated sales numbers, I mean, Sam's numbers.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Book the corner table, scratch that, Sam's table is free.",
+   "expected": "Book the corner table, scratch that, Sam's table is free.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Book the corner table, scratch that, Sam's table.",
+   "expected": "Book the corner table, scratch that, Sam's table.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Use the folder, scratch that, Sam's folder.",
+   "expected": "Use the folder, scratch that, Sam's folder.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Grab the charger, sorry, mom's charger.",
+   "expected": "Grab the charger, sorry, mom's charger.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Use the shared folder, I mean, James' folder.",
+   "expected": "Use the shared folder, I mean, James' folder.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Review the first draft, I mean, everyone's draft.",
+   "expected": "Review the first draft, I mean, everyone's draft.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Give the kids draft plans, scratch that, the manager's plans.",
+   "expected": "Give the kids draft plans, scratch that, the manager's plans.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Use the big room, scratch that, the client's room.",
+   "expected": "Use the big room, scratch that, the client's room.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Use the shared folder, scratch that, our team's folder.",
+   "expected": "Use the shared folder, scratch that, our team's folder.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "all",
+   "input": "Use the folder, scratch that, the team's folder.",
+   "expected": "Use the team's folder.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Book the big room, I mean, small room is free.",
+   "expected": "Book the big room, I mean, small room is free.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Use the staging bucket, I mean, prod bucket is fine.",
+   "expected": "Use the staging bucket, I mean, prod bucket is fine.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Use the staging bucket, I mean, prod bucket please.",
+   "expected": "Use the prod bucket please.",
+   "needs_nltagger": true,
+   "guard": "T25"
+  },
+  {
+   "rules": "R4",
+   "input": "Send the contract, scratch that, team leads the contract.",
+   "expected": "Send the contract, scratch that, team leads the contract.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Call the vendor, scratch that, mom called the vendor.",
+   "expected": "Call the vendor, scratch that, mom called the vendor.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Book the room, scratch that, Sam books the room.",
+   "expected": "Sam books the room.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Book the corner table, scratch that, Sam's table, scratch that, cancel it.",
+   "expected": "Book the corner table, scratch that, Sam's table, scratch that, cancel it.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "We need to call the vendor, scratch that, Sam called the vendor, I mean, supplier.",
+   "expected": "We need to call the vendor, scratch that, Sam called the vendor, I mean, supplier.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Take the team the team photos, no wait, team's photos, then call me.",
+   "expected": "Take the team the team photos, no wait, team's photos, then call me.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "We went over over the numbers, I mean, Sam's numbers.",
+   "expected": "We went over the numbers, I mean, Sam's numbers.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Check the lo logs, then the coach updated main contracts, or rather, team's contracts.",
+   "expected": "Check the logs, then the coach updated main contracts, or rather, team's contracts.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Email expense receipts, I mean, print expense receipts.",
+   "expected": "Email expense receipts, I mean, print expense receipts.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "all",
+   "input": "Email expense receipts, scratch that, print expense receipts.",
+   "expected": "Email expense receipts, scratch that, print expense receipts.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Book old log files, no wait, cancel old log files tonight.",
+   "expected": "Book old log files, no wait, cancel old log files tonight.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Send old log files, scratch that, forward old log files.",
+   "expected": "Send old log files, scratch that, forward old log files.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Email spare keys, scratch that, new spare keys, then call me.",
+   "expected": "Email new spare keys, then call me.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Delete old log files, scratch that, archive old log files.",
+   "expected": "Archive old log files.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Fix the sink, I mean, guest bathroom sink.",
+   "expected": "Fix the guest bathroom sink.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Can you send the invoice, scratch that, Dana Smith the invoice?",
+   "expected": "Can you send Dana Smith the invoice?",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Review the draft, scratch that, Dana Smith's draft.",
+   "expected": "Review Dana Smith's draft.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Send the soup, scratch that, Sam some hot soup.",
+   "expected": "Send Sam some hot soup.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Can you send the invoice, scratch that, Sam the invoice?",
+   "expected": "Can you send Sam the invoice?",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send the team, scratch that, Client the slides.",
+   "expected": "Send the team, scratch that, Client the slides.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "We need to call the vendor, scratch that, Sam called the vendor.",
+   "expected": "We need to call the vendor, scratch that, Sam called the vendor.",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "R4",
+   "input": "Can we pay the invoice, scratch that, mom paid the invoice?",
+   "expected": "Can we pay the invoice, scratch that, mom paid the invoice?",
+   "needs_nltagger": true,
+   "guard": "T24"
+  },
+  {
+   "rules": "all",
+   "input": "Call the vendor, scratch that, Sam called the vendor.",
+   "expected": "Sam called the vendor.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Print the weekly report, scratch that, last week's report.",
+   "expected": "Print last week's report.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Can you print the weekly report, scratch that, last week's report.",
+   "expected": "Can you print last week's report.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Print the weekly report, scratch that, head chef's report.",
+   "expected": "Print head chef's report.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Run the build, scratch that, stress test the build.",
+   "expected": "Stress test the build.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "R4",
+   "input": "Send the report, scratch that, email everyone's report.",
+   "expected": "Email everyone's report.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Bring the kids my old snacks snacks, I mean, the client's snacks the client's snacks please.",
+   "expected": "Bring the kids my old snacks, I mean, the client's snacks the client's snacks please.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "Please use my room room, sorry, my boss's room instead, scratch that, cancel it.",
+   "expected": "Please use my room, sorry, my boss's room instead, scratch that, cancel it.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "We need to give to give the plants, scratch that, Dana the plants.",
+   "expected": "We need to give to give Dana the plants.",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "I should check the ) lease, scratch that, Doctor Kim's lease",
+   "expected": "I should check the ) lease, scratch that, Doctor Kim's lease",
+   "needs_nltagger": true,
+   "guard": "T5b"
+  },
+  {
+   "rules": "all",
+   "input": "Remember to sign shared to sign shared files, no wait, scan shared files!",
+   "expected": "Remember to sign shared to sign shared files, no wait, scan shared files!",
+   "needs_nltagger": true,
+   "guard": null
+  },
+  {
+   "rules": "all",
+   "input": "I should pay the car, scratch um that, Dana the car car?",
+   "expected": "I should pay Dana the car car?",
+   "needs_nltagger": true,
+   "guard": null
+  }
+ ]
+}
